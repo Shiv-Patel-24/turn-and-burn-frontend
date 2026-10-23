@@ -16,10 +16,24 @@ export function CarCard({ car, onRent, liked: likedInit = false, size = 'lg', on
   const handleFavClick = async (e) => {
     e.stopPropagation();
     if (busy) return;
-    const nextState = !liked;
+
+    const prevState = liked;
+    const nextState = !prevState;
+
+    // Optimistic UI update
     setLiked(nextState);
-    if (onToggleFavorite) {
-      onToggleFavorite(car, nextState);
+
+    if (!onToggleFavorite) return;
+
+    setBusy(true);
+    try {
+      await onToggleFavorite(car, nextState);
+    } catch (err) {
+      // Revert optimistic update if the async operation fails
+      setLiked(prevState);
+      throw err;
+    } finally {
+      setBusy(false);
     }
   };
 
