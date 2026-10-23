@@ -325,7 +325,16 @@ export function HostVehicles() {
   }, []);
 
   const handleStatusChange = async (vehicleId, newStatus) => {
-    setList((prev) => prev.map((x) => (x.id === vehicleId ? { ...x, status: newStatus } : x)));
+    let previousStatus = null;
+    setList((prev) =>
+      prev.map((x) => {
+        if (x.id === vehicleId) {
+          previousStatus = x.status;
+          return { ...x, status: newStatus };
+        }
+        return x;
+      }),
+    );
     try {
       const backendStatus = newStatus.toLowerCase();
       await apiRequest(`/vehicles/${vehicleId}/listing-status`, {
@@ -334,6 +343,9 @@ export function HostVehicles() {
       });
     } catch (err) {
       console.warn('Could not update vehicle status on backend:', err.message);
+      if (previousStatus !== null) {
+        setList((prev) => prev.map((x) => (x.id === vehicleId ? { ...x, status: previousStatus } : x)));
+      }
     }
   };
 
@@ -381,5 +393,4 @@ export function HostVehicles() {
     </Layout>
   );
 }
-
 
