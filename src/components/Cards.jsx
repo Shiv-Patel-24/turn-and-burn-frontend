@@ -19,8 +19,6 @@ export function CarCard({ car, onRent, liked: likedInit = false, size = 'lg', on
 
     const prevState = liked;
     const nextState = !prevState;
-
-    // Optimistic UI update
     setLiked(nextState);
 
     if (!onToggleFavorite) return;
@@ -29,9 +27,8 @@ export function CarCard({ car, onRent, liked: likedInit = false, size = 'lg', on
     try {
       await onToggleFavorite(car, nextState);
     } catch (err) {
-      // Revert optimistic update if the async operation fails
       setLiked(prevState);
-      throw err;
+      console.warn('Could not update favorite state:', err?.message || err);
     } finally {
       setBusy(false);
     }
@@ -104,7 +101,7 @@ export function CarRow({ title, subtitle = 'Average daily prices for a 3-day tri
       </div>
       <div className="car-row__track" ref={ref}>
         {items.map((car, i) => (
-          <CarCard key={i} car={car} onRent={onRent} />
+          <CarCard key={i} car={car} onRent={() => onRent?.(car)} />
         ))}
       </div>
     </section>
