@@ -1,10 +1,11 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { FiChevronLeft, FiCalendar, FiMapPin, FiPhone, FiMessageSquare, FiDownload, FiRefreshCw, FiStar, FiCreditCard, FiCheckCircle, FiCamera } from 'react-icons/fi';
 import { TbTag } from 'react-icons/tb';
 import Layout from '../../components/Layout';
 import { Modal, ModalHeader, Field, Input, Select, Checkbox, Stars, StarInput } from '../../ui';
 import { img } from '../../data';
 import { navigate, Link } from '../../router';
+import { apiRequest, getCurrentUser } from '../../lib/api';
 
 export function BackLink({ to = '/app', children = 'Back' }) {
   return (
@@ -147,10 +148,109 @@ export function RentalInfoModal({ onClose }) {
 export function Book() {
   const [done, setDone] = useState(false);
   const [rental, setRental] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+
+  const currentUser = getCurrentUser() || {};
+  const [firstName, setFirstName] = useState(currentUser.firstName || '');
+  const [lastName, setLastName] = useState(currentUser.lastName || '');
+  const [phone, setPhone] = useState(currentUser.phoneNumber || '');
+  const [age, setAge] = useState('28');
+
+  const [pickupCity, setPickupCity] = useState('San Francisco');
+  const [pickupDate, setPickupDate] = useState(() => {
+    const d = new Date(Date.now() + 2 * 24 * 60 * 60 * 1000);
+    return d.toISOString().split('T')[0];
+  });
+  const [dropoffDate, setDropoffDate] = useState(() => {
+    const d = new Date(Date.now() + 5 * 24 * 60 * 60 * 1000);
+    return d.toISOString().split('T')[0];
+  });
+  const [vehicleData, setVehicleData] = useState(null);
+
+  useEffect(() => {
+    let active = true;
+    const hash = window.location.hash || '';
+    const query = hash.includes('?') ? hash.split('?')[1] : '';
+    const params = new URLSearchParams(query);
+    const vId = params.get('vehicle');
+
+    if (vId && vId !== 'default' && vId !== '1') {
+      apiRequest(`/vehicles/${vId}`)
+        .then((res) => {
+          if (!active) return;
+          if (res?.data) setVehicleData(res.data);
+        })
+        .catch(() => {});
+    } else {
+      apiRequest('/vehicles/search?limit=1')
+        .then((res) => {
+          if (!active) return;
+          const list = res?.data?.results || res?.data || [];
+          if (list.length > 0) setVehicleData(list[0]);
+        })
+        .catch(() => {});
+    }
+
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  const handleBookTrip = async () => {
+    setError('');
+    setLoading(true);
+
+    try {
+      const vId = vehicleData?._id || vehicleData?.id;
+
+      if (!vId) {
+        throw new Error('Missing vehicle id for booking.');
+      }
+
+      const payload = {
+        vehicle: vId,
+        tripType: 'daily',
+        pickup: {
+          location: pickupCity || 'San Francisco International Airport',
+          dateTime: new Date(`${pickupDate}T10:00:00.000Z`).toISOString(),
+        },
+        dropoff: {
+          location: pickupCity || 'San Francisco International Airport',
+          dateTime: new Date(`${dropoffDate}T10:00:00.000Z`).toISOString(),
+        },
+        primaryDriver: {
+          name: `${firstName} ${lastName}`.trim() || 'John Doe',
+          isSameAsAccountHolder: true,
+        },
+        seatsRequested: vehicleData?.seats || 2,
+        nonRefundable: false,
+      };
+
+      await apiRequest('/bookings', {
+        method: 'POST',
+        body: payload,
+      });
+
+      setDone(true);
+    } catch (err) {
+      console.warn('Booking creation failed:', err?.message);
+      setError(err?.message || 'Failed to create booking. Please try again.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+
   return (
     <Layout role="user">
       <div className="container checkout">
-        <BackLink to="/app/car/1" />
+        <BackLink to="/app/cars" />
+        {error && (
+          <div style={{ color: '#ef4444', backgroundColor: '#fee2e2', padding: '12px', borderRadius: '8px', marginBottom: '16px' }}>
+            {error}
+          </div>
+        )}
         <div className="checkout__grid">
           <div className="checkout__forms">
             <section className="panel">
@@ -163,22 +263,38 @@ export function Book() {
               </div>
               <div className="grid-2">
                 <Field label="First name">
-                  <Input placeholder="First name on license" />
+                  <Input
+                    placeholder="First name on license"
+                    value={firstName}
+                    onChange={(e) => setFirstName(e.target.value)}
+                  />
                 </Field>
                 <Field label="Last name">
-                  <Input placeholder="Last name on license" />
+                  <Input
+                    placeholder="Last name on license"
+                    value={lastName}
+                    onChange={(e) => setLastName(e.target.value)}
+                  />
                 </Field>
               </div>
               <div className="grid-country">
                 <Field label="Country">
-                  <Input defaultValue="US +1" />
+                  <Input defaultValue="US +1" readOnly />
                 </Field>
                 <Field label="Mobile number">
-                  <Input placeholder="(201) 555-0123" />
+                  <Input
+                    placeholder="(201) 555-0123"
+                    value={phone}
+                    onChange={(e) => setPhone(e.target.value)}
+                  />
                 </Field>
               </div>
               <Field label="Age">
-                <Input placeholder="Enter your age on license" />
+                <Input
+                  placeholder="Enter your age on license"
+                  value={age}
+                  onChange={(e) => setAge(e.target.value)}
+                />
               </Field>
             </section>
 
@@ -205,30 +321,39 @@ export function Book() {
             </section>
 
             <AgreeBox />
-            <button type="button" className="btn btn-primary btn-block btn-lg" onClick={() => setDone(true)}>
-              Book trip
+            <button
+              type="button"
+              className="btn btn-primary btn-block btn-lg"
+              disabled={loading}
+              onClick={handleBookTrip}
+            >
+              {loading ? 'Processing Reservation...' : 'Book trip'}
             </button>
           </div>
+
 
           <aside className="panel summary">
             <h3>Rental Summary</h3>
             <small>Prices may change depending on the length of the rental and the price of your rental car.</small>
             <div className="summary__car">
-              <img src={img('gtr-blue.jpg')} alt="Nissan GT-R" />
+              <img
+                src={vehicleData?.photos?.[0]?.url || img('gtr-blue.jpg')}
+                alt={vehicleData?.model || 'Nissan GT-R'}
+              />
               <div>
-                <h2>Nissan GT – R</h2>
+                <h2>{vehicleData ? `${vehicleData.year || ''} ${vehicleData.make || ''} ${vehicleData.model || ''}`.trim() : 'Nissan GT – R'}</h2>
                 <span className="summary__rating">
-                  <Stars value={4} size={14} /> 440+ Reviewer
+                  <Stars value={4} size={14} /> {vehicleData?.ratingsCount ? `${vehicleData.ratingsCount}+ Reviews` : '440+ Reviewer'}
                 </span>
               </div>
             </div>
             <div className="summary__dates">
               <span>
-                <FiCalendar /> Sun, Jul 5 at 10:00 AM
+                <FiCalendar /> {pickupDate} at 10:00 AM
               </span>
               <span className="summary__dash">- - - - - - - - ›</span>
               <span>
-                <FiCalendar /> Wed, Jul 8 at 10:00 AM
+                <FiCalendar /> {dropoffDate} at 10:00 AM
               </span>
             </div>
             <p className="summary__loc">
@@ -465,28 +590,38 @@ export function ReviewModal({ onClose }) {
   );
 }
 
-function BookingRow({ previous, onReview }) {
+function BookingRow({ booking, previous, onReview }) {
+  const carName = booking?.vehicle
+    ? `${booking.vehicle.year || ''} ${booking.vehicle.make || ''} ${booking.vehicle.model || ''}`.trim()
+    : 'Nissan GT – R';
+  const carImg = booking?.vehicle?.photos?.[0]?.url || img('booking-car.jpg');
+  const pickupDate = booking?.pickup?.dateTime ? new Date(booking.pickup.dateTime).toLocaleDateString() : '12 April 2025';
+  const dropoffDate = booking?.dropoff?.dateTime ? new Date(booking.dropoff.dateTime).toLocaleDateString() : '13 April 2025';
+  const pickupLoc = booking?.pickup?.location || 'Baner, Pune';
+  const dropoffLoc = booking?.dropoff?.location || 'Baner, Pune';
+  const total = booking?.pricing?.total != null ? `$${booking.pricing.total}` : '$80';
+
   return (
     <div className="booking-row">
       <div className="booking-row__car">
-        <img src={img('booking-car.jpg')} alt="" />
-        <b>Nissan GT – R</b>
+        <img src={carImg} alt={carName} />
+        <b>{carName}</b>
         <span>
           <Stars value={4} size={14} /> 440+ Reviewer
         </span>
       </div>
       <div className="booking-row__box">
-        <p>Pick-up Date &amp; Time: 12 April 2025, 12:30 PM</p>
-        <p>Pick-up Location: Baner, Pune</p>
+        <p>Pick-up Date: {pickupDate}</p>
+        <p>Pick-up Location: {pickupLoc}</p>
         <hr />
-        <p>Return Date &amp; Time: 12 April 2025, 12:30 PM</p>
-        <p>Return Location: Baner, Pune</p>
+        <p>Return Date: {dropoffDate}</p>
+        <p>Return Location: {dropoffLoc}</p>
       </div>
       <div className="booking-row__box">
         <h4>Booking Detail</h4>
-        <p>Seat: 5 (1 baby seat)</p>
-        <p>Duration: 1 Day (7 Extra Hours)</p>
-        <p>Total Amount: $80</p>
+        <p>Status: <span style={{ textTransform: 'capitalize', fontWeight: 600 }}>{booking?.status || 'Active'}</span></p>
+        <p>Reference: {booking?.referenceCode || '#BK-9761'}</p>
+        <p>Total Amount: {total}</p>
       </div>
       <div className="booking-row__chauffeur">
         <h4>Assigned Chauffeur</h4>
@@ -530,20 +665,58 @@ function BookingRow({ previous, onReview }) {
 /* Figma: "MacBook Pro 14 - 14" — My Bookings */
 export function Bookings() {
   const [review, setReview] = useState(false);
+  const [bookings, setBookings] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let active = true;
+    apiRequest('/bookings')
+      .then((res) => {
+        if (!active) return;
+        const list = res?.data || [];
+        setBookings(Array.isArray(list) ? list : []);
+      })
+      .catch((err) => {
+        console.warn('Could not fetch bookings from server:', err.message);
+      })
+      .finally(() => {
+        if (active) setLoading(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  const upcoming = bookings.filter((b) => b.status === 'pending' || b.status === 'approved' || b.status === 'active');
+  const past = bookings.filter((b) => b.status === 'completed' || b.status === 'cancelled' || b.status === 'rejected');
+
   return (
     <Layout role="user">
       <div className="container bookings">
         <BackLink to="/app">Back to Home</BackLink>
         <h2>Upcoming Bookings</h2>
-        <div className="month-bar">April 2025</div>
-        <BookingRow />
+        {loading && <p style={{ color: '#888', padding: '10px 0' }}>Checking your reservation records...</p>}
+        {upcoming.length > 0 ? (
+          upcoming.map((b) => <BookingRow key={b._id || b.id} booking={b} />)
+        ) : (
+          <>
+            <div className="month-bar">Current Month</div>
+            <BookingRow />
+          </>
+        )}
         <h2>Previous Bookings</h2>
-        {['November 2024', 'October  2024', 'May  2024'].map((m) => (
-          <div key={m}>
-            <div className="month-bar">{m}</div>
-            <BookingRow previous onReview={() => setReview(true)} />
-          </div>
-        ))}
+        {past.length > 0 ? (
+          past.map((b) => (
+            <BookingRow key={b._id || b.id} booking={b} previous onReview={() => setReview(true)} />
+          ))
+        ) : (
+          ['November 2024', 'October 2024'].map((m) => (
+            <div key={m}>
+              <div className="month-bar">{m}</div>
+              <BookingRow previous onReview={() => setReview(true)} />
+            </div>
+          ))
+        )}
       </div>
       {review && <ReviewModal onClose={() => setReview(false)} />}
     </Layout>

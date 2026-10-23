@@ -1,12 +1,13 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { FiChevronRight, FiArrowRight, FiCalendar, FiMapPin, FiSend, FiBarChart2 } from 'react-icons/fi';
 import { IoCarSportOutline, IoAirplane } from 'react-icons/io5';
 import Layout from '../components/Layout';
 import { SearchPanel, Segmented } from '../components/Search';
 import { CarCard, CarRow } from '../components/Cards';
-import { carAt, collectionTabs, rentalSections, img } from '../data';
+import { carAt, collectionTabs, rentalSections, img, formatVehicle } from '../data';
 import { navigate } from '../router';
 import { useUI } from '../ui';
+import { apiRequest } from '../lib/api';
 
 const categories = [
   { label: 'All', icon: IoCarSportOutline },
@@ -30,10 +31,34 @@ export default function Home({ role = 'guest' }) {
   const [cat, setCat] = useState('All');
   const [body, setBody] = useState(-1);
   const [tab, setTab] = useState(collectionTabs[0]);
+  const [apiVehicles, setApiVehicles] = useState([]);
   const isUser = role === 'user';
-  const rent = () => (isUser ? navigate('/app/car/1') : navigate('/car/1'));
-  const gridCars = [0, 1, 2, 3, 4, 5, 0, 1, 2].map(carAt);
-  const rowCars = [0, 1, 2, 3, 4, 5, 0, 1, 2].map(carAt);
+  const rent = (c) => {
+    const id = c?.id || '1';
+    return isUser ? navigate(`/app/car/${id}`) : navigate(`/car/${id}`);
+  };
+
+  useEffect(() => {
+    let active = true;
+    apiRequest('/vehicles/search')
+      .then((res) => {
+        if (!active) return;
+        const list = res?.data?.results || res?.data || [];
+        if (list.length) setApiVehicles(list);
+      })
+      .catch((err) => console.warn('Home vehicles fallback to mock:', err.message));
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  const defaultMock = [0, 1, 2, 3, 4, 5, 0, 1, 2].map(carAt);
+  const gridCars = apiVehicles.length > 0
+    ? apiVehicles.slice(0, 9).map((v, i) => formatVehicle(v, i))
+    : defaultMock;
+  const rowCars = apiVehicles.length > 0
+    ? apiVehicles.map((v, i) => formatVehicle(v, i))
+    : defaultMock;
 
   return (
     <Layout role={role}>
@@ -96,7 +121,7 @@ export default function Home({ role = 'guest' }) {
           </div>
           <div className="car-grid">
             {gridCars.map((c, i) => (
-              <CarCard key={`${tab}-${i}`} car={c} onRent={rent} />
+              <CarCard key={`${tab}-${i}`} car={c} onRent={() => rent(c)} />
             ))}
           </div>
           <div className="center">

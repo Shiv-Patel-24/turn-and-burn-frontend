@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { FiChevronLeft, FiChevronRight, FiUser, FiDollarSign, FiClock, FiMapPin, FiCheckCircle, FiArrowRight } from 'react-icons/fi';
 import { TbArrowsRightLeft, TbHourglass } from 'react-icons/tb';
 import { FaStar } from 'react-icons/fa';
@@ -9,6 +9,7 @@ import { Modal } from '../../ui';
 import { SearchField, SortPopover, ListingStatusPopover, VehiclePopover, TripStatusPopover, StatusMenu, Thumb } from './HostShared';
 import { img, fleetThumbs, tripThumbs, hostVehicles, LOREM_SHORT } from '../../data';
 import { navigate } from '../../router';
+import { apiRequest } from '../../lib/api';
 
 function MonthNav({ onOpen }) {
   return (
@@ -288,13 +289,73 @@ export function HostTrips({ tab = 'booked' }) {
 /* Figma: "MacBook Pro 14 - 46" — Vehicles */
 export function HostVehicles() {
   const [list, setList] = useState(hostVehicles);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let active = true;
+    apiRequest('/vehicles')
+      .then((res) => {
+        if (!active) return;
+        const vehicles = res?.data || [];
+        if (Array.isArray(vehicles) && vehicles.length > 0) {
+          const mapped = vehicles.map((v, i) => ({
+            id: v._id || v.id || i + 1,
+            name: `${v.year || ''} ${v.make || ''} ${v.model || ''}`.trim() || 'Vehicle',
+            image: v.photos?.[0]?.url || hostVehicles[i % hostVehicles.length].image,
+            plate: v.licensePlate || 'ABC-1234',
+            state: v.licensePlateState || v.location?.state || 'NY',
+            status: v.listingStatus === 'listed' ? 'Listed' : v.listingStatus === 'snoozed' ? 'Snoozed' : 'Unlisted',
+            lastTrip: 'Active',
+            rating: v.ratingsAverage || 5.0,
+            trips: v.ratingsCount || 0,
+          }));
+          setList(mapped);
+        }
+      })
+      .catch((err) => {
+        console.warn('Could not fetch host vehicles from server:', err.message);
+      })
+      .finally(() => {
+        if (active) setLoading(false);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  const handleStatusChange = async (vehicleId, newStatus) => {
+    let previousStatus = null;
+    setList((prev) =>
+      prev.map((x) => {
+        if (x.id === vehicleId) {
+          previousStatus = x.status;
+          return { ...x, status: newStatus };
+        }
+        return x;
+      }),
+    );
+    try {
+      const backendStatus = newStatus.toLowerCase();
+      await apiRequest(`/vehicles/${vehicleId}/listing-status`, {
+        method: 'PATCH',
+        body: { listingStatus: backendStatus },
+      });
+    } catch (err) {
+      console.warn('Could not update vehicle status on backend:', err.message);
+      if (previousStatus !== null) {
+        setList((prev) => prev.map((x) => (x.id === vehicleId ? { ...x, status: previousStatus } : x)));
+      }
+    }
+  };
+
   return (
     <Layout role="host">
       <div className="container vehicles">
         <div className="vehicles__head">
           <div>
             <h1>Vehicles</h1>
-            <p>Lorem Ipsum is simply dummy text...</p>
+            <p>Manage your fleet, availability, and active status.</p>
           </div>
           <div className="toolbar__right">
             <SearchField />
@@ -305,13 +366,14 @@ export function HostVehicles() {
             </button>
           </div>
         </div>
+        {loading && <p style={{ color: '#888', padding: '10px 0' }}>Loading your fleet listings...</p>}
         <div className="veh-grid">
           {list.map((v) => (
             <article className="veh-card" key={v.id}>
               <div className="veh-card__img" onClick={() => navigate(`/host/vehicles/${v.id}/location`)}>
                 <img src={v.image} alt={v.name} />
               </div>
-              <StatusMenu status={v.status} onChange={(s) => setList(list.map((x) => (x.id === v.id ? { ...x, status: s } : x)))} />
+              <StatusMenu status={v.status} onChange={(s) => handleStatusChange(v.id, s)} />
               <button type="button" className="veh-card__body" onClick={() => navigate(`/host/vehicles/${v.id}/location`)}>
                 <h3>{v.name}</h3>
                 <p className="veh-card__plate">

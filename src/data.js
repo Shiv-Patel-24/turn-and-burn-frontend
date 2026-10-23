@@ -19,6 +19,41 @@ export const cars = [
 
 export const carAt = (i) => cars[((i % cars.length) + cars.length) % cars.length];
 
+export function formatVehicle(v, fallbackIndex = 0) {
+  if (!v) return carAt(fallbackIndex);
+  const primaryPhoto = (v.photos && v.photos.find((p) => p.isPrimary)?.url) || (v.photos && v.photos[0]?.url);
+  const dailyRate = v.pricing?.dailyRate;
+  const rawPrice = v.price;
+  const price = typeof dailyRate === 'number' && Number.isFinite(dailyRate)
+    ? `$${dailyRate.toFixed(2)}`
+    : rawPrice == null
+      ? '$78.90'
+      : typeof rawPrice === 'number' && Number.isFinite(rawPrice)
+        ? `$${rawPrice.toFixed(2)}`
+        : String(rawPrice).trim().startsWith('$')
+          ? String(rawPrice).trim()
+          : `$${String(rawPrice).trim()}`;
+  const rawSeats = v.seats;
+  const seats = rawSeats == null
+    ? '4 Person'
+    : typeof rawSeats === 'number'
+      ? `${rawSeats} ${rawSeats === 1 ? 'Person' : 'People'}`
+      : /^\d+$/.test(String(rawSeats).trim())
+        ? `${Number(rawSeats)} ${Number(rawSeats) === 1 ? 'Person' : 'People'}`
+        : String(rawSeats).trim();
+  return {
+    id: v._id || v.id || fallbackIndex,
+    name: v.name || `${v.year || ''} ${v.make || ''} ${v.model || ''}`.trim() || 'Vehicle',
+    image: primaryPhoto || img(`car${(fallbackIndex % 6) + 1}.jpg`),
+    price,
+    mileage: v.odometer ? `${v.odometer.toLocaleString()} mi` : (v.mileage || '4,000'),
+    gearbox: v.transmission || v.gearbox || 'Auto',
+    seats,
+    fuel: v.fuelType || v.fuel || 'Gasoline',
+    raw: v,
+  };
+}
+
 export const collectionTabs = ['Popular Car', 'Luxury Car', 'Vintage Car', 'Family Car', 'Off-Road Car'];
 
 export const rentalSections = [

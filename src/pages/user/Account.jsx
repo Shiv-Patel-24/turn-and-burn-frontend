@@ -8,6 +8,7 @@ import { Modal, Select, Radio, Field, Input } from '../../ui';
 import { img, LOREM } from '../../data';
 import { PaymentFields, AgreeBox, SuccessModal } from './Booking';
 import { navigate } from '../../router';
+import { apiRequest, getCurrentUser, setCurrentUser } from '../../lib/api';
 
 function PageTitle({ title, children, right }) {
   return (
@@ -121,60 +122,225 @@ export function SavedLocations() {
 
 /* Figma: "MacBook Pro 14 - 19" (user) / "MacBook Pro 14 - 53" (host) — Profile */
 export function Profile({ role = 'user' }) {
+  const [user, setUser] = useState(() => getCurrentUser() || {});
+  const [fullName, setFullName] = useState('');
+  const [gender, setGender] = useState('Female');
+  const [country, setCountry] = useState('US');
+  const [language, setLanguage] = useState('English');
+  const [timeZone, setTimeZone] = useState('Chicago (GMT-5)');
   const [saved, setSaved] = useState(false);
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    let active = true;
+    apiRequest('/users/me')
+      .then((res) => {
+        if (!active) return;
+        const u = res?.data || {};
+        setUser(u);
+        setCurrentUser(u);
+        setFullName(`${u.firstName || ''} ${u.lastName || ''}`.trim() || 'User');
+        if (u.gender) setGender(u.gender);
+        if (u.country) setCountry(u.country);
+        if (u.language) setLanguage(u.language);
+        if (u.timeZone) setTimeZone(u.timeZone);
+      })
+      .catch((err) => {
+        console.warn('Could not load current user from API:', err.message);
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  const handleSave = async () => {
+    setLoading(true);
+    try {
+      const parts = fullName.trim().split(' ');
+      const firstName = parts[0] || user.firstName || 'User';
+      const lastName = parts.slice(1).join(' ') || user.lastName || '';
+      const res = await apiRequest('/users/me', {
+        method: 'PATCH',
+        body: {
+          firstName,
+          lastName,
+          gender,
+          country,
+          language,
+          timeZone,
+        },
+      });
+      if (res?.data) {
+        setUser(res.data);
+        setCurrentUser(res.data);
+      }
+      setSaved(true);
+      setTimeout(() => setSaved(false), 3000);
+    } catch (err) {
+      alert(err.message || 'Failed to update profile');
+    } finally {
+      setLoading(false);
+    }
+  };
+
   return (
     <Layout role={role}>
       <div className="container profile">
         <PageTitle title="Profile">
-          Lorem Ipsum is simply dummy text of the printing and typesetting industry. Lorem Ipsum has been the industry's standard dummy text ever since the 1500s.
+          Manage your account profile, contact details, and platform preferences.
         </PageTitle>
         <div className="profile__head">
           <label className="profile__avatar">
-            <img src={img('avatar-user.jpg')} alt="" />
+            <img
+              src={user.profilePhotoUrl || img('avatar-user.jpg')}
+              alt={(fullName || '').trim() ? `${fullName.trim()}'s profile picture` : 'User profile picture'}
+            />
             <span>
               <FiCamera size={22} />
             </span>
             <input type="file" accept="image/*" hidden />
           </label>
           <div>
-            <b>Alexa Rawles</b>
-            <small>alexarawles@gmail.com</small>
+            <b>{fullName || 'Alexa Rawles'}</b>
+            <small>{user.email || 'alexarawles@gmail.com'}</small>
           </div>
-          <button type="button" className="btn btn-primary" onClick={() => setSaved(true)}>
-            {saved ? 'Saved' : 'Save'}
+          <button type="button" className="btn btn-primary" onClick={handleSave} disabled={loading}>
+            {loading ? 'Saving...' : saved ? 'Saved!' : 'Save'}
           </button>
         </div>
         <div className="profile__grid">
           <Field label="Full Name">
-            <Input className="input input--soft" defaultValue="Alexa Rawles" />
+            <Input
+              className="input input--soft"
+              value={fullName}
+              onChange={(e) => setFullName(e.target.value)}
+            />
           </Field>
-          <Field label="Nick Name">
-            <Input defaultValue="Ale" />
+          <Field label="Role">
+            <Input value={user.activeRole || role} readOnly disabled />
           </Field>
           <Field label="Gender">
-            <Select value="Female" options={['Female', 'Male', 'Other']} />
+            <Select value={gender} onChange={setGender} options={['Female', 'Male', 'Other']} />
           </Field>
           <Field label="Country">
-            <Select value="US" options={['US', 'UK', 'India']} />
+            <Select value={country} onChange={setCountry} options={['US', 'United States', 'UK', 'India']} />
           </Field>
           <Field label="Language">
-            <Select value="English" options={['English', 'Spanish', 'Hindi']} />
+            <Select value={language} onChange={setLanguage} options={['English', 'Spanish', 'Hindi']} />
           </Field>
           <Field label="Time Zone">
-            <Select value="Chicago (GMT-5)" options={['Chicago (GMT-5)', 'New York (GMT-4)', 'Los Angeles (GMT-7)']} />
+            <Select value={timeZone} onChange={setTimeZone} options={['Chicago (GMT-5)', 'New York (GMT-4)', 'Los Angeles (GMT-7)']} />
           </Field>
           <Field label="Email">
-            <Input defaultValue="example123@email.com" />
+            <Input value={user.email || 'example123@email.com'} readOnly disabled />
           </Field>
           <Field label="Phone No">
             <div className="phone-row">
-              <span className="input input--code">+1</span>
-              <Input defaultValue="7778 562 369" />
+              <span className="input input--code">{user.phoneCountryCode || '+1'}</span>
+              <Input value={user.phoneNumber || '7778 562 369'} readOnly disabled />
             </div>
           </Field>
         </div>
+
+        <DriverLicenseSection user={user} onUpdate={(updated) => setUser(updated)} />
       </div>
     </Layout>
+  );
+}
+
+function DriverLicenseSection({ user, onUpdate }) {
+  const license = user?.license || {};
+  const [country, setCountry] = useState(license.issuingCountry || 'US');
+  const [state, setState] = useState(license.state || 'CA');
+  const [licenseNumber, setLicenseNumber] = useState(license.licenseNumber || '');
+  const [expDate, setExpDate] = useState(() => {
+    if (license.expirationDate) return new Date(license.expirationDate).toISOString().split('T')[0];
+    const d = new Date(Date.now() + 365 * 24 * 60 * 60 * 1000);
+    return d.toISOString().split('T')[0];
+  });
+  const [file, setFile] = useState(null);
+  const [submitting, setSubmitting] = useState(false);
+  const [msg, setMsg] = useState('');
+  const [err, setErr] = useState('');
+
+  const statusLabel = license.status || 'not_submitted';
+  const statusColor = statusLabel === 'approved' ? '#16a34a' : statusLabel === 'pending' ? '#d97706' : '#6b7280';
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    setErr('');
+    setMsg('');
+    setSubmitting(true);
+
+    try {
+      const formData = new FormData();
+      formData.append('issuingCountry', country);
+      formData.append('state', state);
+      formData.append('licenseNumber', licenseNumber);
+      formData.append('expirationDate', new Date(expDate).toISOString());
+      formData.append('firstName', user?.firstName || 'User');
+      formData.append('lastName', user?.lastName || 'Account');
+      if (file) formData.append('document', file);
+
+      const res = await apiRequest('/users/me/license', {
+        method: 'POST',
+        body: formData,
+      });
+
+      setMsg('Driver’s license uploaded successfully and is pending review!');
+      if (res?.data) {
+        onUpdate(res.data);
+      }
+    } catch (e) {
+      setErr(e.message || 'Failed to submit license details.');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <div style={{ marginTop: '36px', background: '#fff', borderRadius: '16px', border: '1px solid #e5e7eb', padding: '24px' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+        <div>
+          <h3 style={{ margin: 0, fontSize: '18px', fontWeight: 600 }}>Driver’s License Verification</h3>
+          <p style={{ margin: '4px 0 0', color: '#6b7280', fontSize: '14px' }}>Required to rent and list vehicles on Turn &amp; Burn</p>
+        </div>
+        <span style={{ backgroundColor: `${statusColor}15`, color: statusColor, padding: '6px 12px', borderRadius: '9999px', fontSize: '13px', fontWeight: 600, textTransform: 'capitalize' }}>
+          Status: {statusLabel.replace('_', ' ')}
+        </span>
+      </div>
+
+      {err && <div style={{ color: '#ef4444', backgroundColor: '#fee2e2', padding: '10px 14px', borderRadius: '8px', marginBottom: '14px', fontSize: '14px' }}>{err}</div>}
+      {msg && <div style={{ color: '#15803d', backgroundColor: '#dcfce7', padding: '10px 14px', borderRadius: '8px', marginBottom: '14px', fontSize: '14px' }}>{msg}</div>}
+
+      <form onSubmit={handleSubmit} style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '16px', alignItems: 'end' }}>
+        <div>
+          <label style={{ display: 'block', fontSize: '13px', color: '#374151', marginBottom: '6px', fontWeight: 500 }}>Country</label>
+          <Input value={country} onChange={(e) => setCountry(e.target.value)} placeholder="Country (e.g. US)" required />
+        </div>
+        <div>
+          <label style={{ display: 'block', fontSize: '13px', color: '#374151', marginBottom: '6px', fontWeight: 500 }}>State / Province</label>
+          <Input value={state} onChange={(e) => setState(e.target.value)} placeholder="State (e.g. CA)" required />
+        </div>
+        <div>
+          <label style={{ display: 'block', fontSize: '13px', color: '#374151', marginBottom: '6px', fontWeight: 500 }}>License Number</label>
+          <Input value={licenseNumber} onChange={(e) => setLicenseNumber(e.target.value)} placeholder="e.g. D1234567" required />
+        </div>
+        <div>
+          <label style={{ display: 'block', fontSize: '13px', color: '#374151', marginBottom: '6px', fontWeight: 500 }}>Expiration Date</label>
+          <Input type="date" value={expDate} onChange={(e) => setExpDate(e.target.value)} required />
+        </div>
+        <div>
+          <label style={{ display: 'block', fontSize: '13px', color: '#374151', marginBottom: '6px', fontWeight: 500 }}>Upload License Document / Photo</label>
+          <input type="file" accept="image/*,application/pdf" onChange={(e) => setFile(e.target.files?.[0])} style={{ fontSize: '13px' }} />
+        </div>
+        <div>
+          <button type="submit" className="btn btn-primary btn-block" disabled={submitting}>
+            {submitting ? 'Submitting...' : 'Upload & Verify'}
+          </button>
+        </div>
+      </form>
+    </div>
   );
 }
 

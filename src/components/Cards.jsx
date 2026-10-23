@@ -1,17 +1,49 @@
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { FaHeart, FaRegHeart, FaStar } from 'react-icons/fa';
 import { FiChevronLeft, FiChevronRight } from 'react-icons/fi';
 import { TbGauge, TbManualGearbox, TbUsers, TbGasStation } from 'react-icons/tb';
 import { img } from '../data';
 
 /* Car card — Figma "Component 6..17 / 20..34" */
-export function CarCard({ car, onRent, liked: likedInit = false, size = 'lg' }) {
+export function CarCard({ car, onRent, liked: likedInit = false, size = 'lg', onToggleFavorite }) {
   const [liked, setLiked] = useState(likedInit);
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    setLiked(Boolean(car?.isFavorite || likedInit));
+  }, [car?.isFavorite, likedInit]);
+
+  const handleFavClick = async (e) => {
+    e.stopPropagation();
+    if (busy) return;
+
+    const prevState = liked;
+    const nextState = !prevState;
+    setLiked(nextState);
+
+    if (!onToggleFavorite) return;
+
+    setBusy(true);
+    try {
+      await onToggleFavorite(car, nextState);
+    } catch (err) {
+      setLiked(prevState);
+      console.warn('Could not update favorite state:', err?.message || err);
+    } finally {
+      setBusy(false);
+    }
+  };
+
   return (
     <article className={`car-card car-card--${size}`}>
       <div className="car-card__img">
         <img src={car.image} alt={car.name} loading="lazy" />
-        <button type="button" className={`car-card__fav ${liked ? 'is-liked' : ''}`} aria-label="Favorite" onClick={() => setLiked((l) => !l)}>
+        <button
+          type="button"
+          className={`car-card__fav ${liked ? 'is-liked' : ''}`}
+          aria-label="Favorite"
+          onClick={handleFavClick}
+        >
           {liked ? <FaHeart /> : <FaRegHeart />}
         </button>
       </div>
@@ -69,7 +101,7 @@ export function CarRow({ title, subtitle = 'Average daily prices for a 3-day tri
       </div>
       <div className="car-row__track" ref={ref}>
         {items.map((car, i) => (
-          <CarCard key={i} car={car} onRent={onRent} />
+          <CarCard key={i} car={car} onRent={() => onRent?.(car)} />
         ))}
       </div>
     </section>
