@@ -204,36 +204,38 @@ export function Book() {
     try {
       const vId = vehicleData?._id || vehicleData?.id;
 
-      if (vId) {
-        const payload = {
-          vehicle: vId,
-          tripType: 'daily',
-          pickup: {
-            location: pickupCity || 'San Francisco International Airport',
-            dateTime: new Date(`${pickupDate}T10:00:00.000Z`).toISOString(),
-          },
-          dropoff: {
-            location: pickupCity || 'San Francisco International Airport',
-            dateTime: new Date(`${dropoffDate}T10:00:00.000Z`).toISOString(),
-          },
-          primaryDriver: {
-            name: `${firstName} ${lastName}`.trim() || 'John Doe',
-            isSameAsAccountHolder: true,
-          },
-          seatsRequested: vehicleData?.seats || 2,
-          nonRefundable: false,
-        };
-
-        await apiRequest('/bookings', {
-          method: 'POST',
-          body: payload,
-        });
+      if (!vId) {
+        throw new Error('Missing vehicle id for booking.');
       }
+
+      const payload = {
+        vehicle: vId,
+        tripType: 'daily',
+        pickup: {
+          location: pickupCity || 'San Francisco International Airport',
+          dateTime: new Date(`${pickupDate}T10:00:00.000Z`).toISOString(),
+        },
+        dropoff: {
+          location: pickupCity || 'San Francisco International Airport',
+          dateTime: new Date(`${dropoffDate}T10:00:00.000Z`).toISOString(),
+        },
+        primaryDriver: {
+          name: `${firstName} ${lastName}`.trim() || 'John Doe',
+          isSameAsAccountHolder: true,
+        },
+        seatsRequested: vehicleData?.seats || 2,
+        nonRefundable: false,
+      };
+
+      await apiRequest('/bookings', {
+        method: 'POST',
+        body: payload,
+      });
 
       setDone(true);
     } catch (err) {
-      console.warn('Booking creation note:', err.message);
-      setDone(true);
+      console.warn('Booking creation failed:', err?.message);
+      setError(err?.message || 'Failed to create booking. Please try again.');
     } finally {
       setLoading(false);
     }
