@@ -134,7 +134,7 @@ export default function Home({ role = 'guest' }) {
 
       <div className="rows">
         {rentalSections.map((t) => (
-          <CarRow key={t} title={t} items={rowCars} onRent={() => rent(rowCars[0])} />
+          <CarRow key={t} title={t} items={rowCars} onRent={rent} />
         ))}
       </div>
     </Layout>
