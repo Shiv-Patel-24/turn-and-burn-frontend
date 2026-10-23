@@ -191,7 +191,10 @@ export function Profile({ role = 'user' }) {
         </PageTitle>
         <div className="profile__head">
           <label className="profile__avatar">
-            <img src={user.profilePhotoUrl || img('avatar-user.jpg')} alt="" />
+            <img
+              src={user.profilePhotoUrl || img('avatar-user.jpg')}
+              alt={(fullName || '').trim() ? `${fullName.trim()}'s profile picture` : 'User profile picture'}
+            />
             <span>
               <FiCamera size={22} />
             </span>
