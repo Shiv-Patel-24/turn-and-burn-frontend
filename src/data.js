@@ -19,6 +19,22 @@ export const cars = [
 
 export const carAt = (i) => cars[((i % cars.length) + cars.length) % cars.length];
 
+export function formatVehicle(v, fallbackIndex = 0) {
+  if (!v) return carAt(fallbackIndex);
+  const primaryPhoto = (v.photos && v.photos.find((p) => p.isPrimary)?.url) || (v.photos && v.photos[0]?.url);
+  return {
+    id: v._id || v.id || fallbackIndex,
+    name: v.name || `${v.year || ''} ${v.make || ''} ${v.model || ''}`.trim() || 'Vehicle',
+    image: primaryPhoto || img(`car${(fallbackIndex % 6) + 1}.jpg`),
+    price: v.pricing?.dailyRate ? `$${v.pricing.dailyRate.toFixed(2)}` : (v.price || '$78.90'),
+    mileage: v.odometer ? `${v.odometer.toLocaleString()} mi` : (v.mileage || '4,000'),
+    gearbox: v.transmission || v.gearbox || 'Auto',
+    seats: v.seats ? `${v.seats} Person` : (v.seats || '4 Person'),
+    fuel: v.fuelType || v.fuel || 'Gasoline',
+    raw: v,
+  };
+}
+
 export const collectionTabs = ['Popular Car', 'Luxury Car', 'Vintage Car', 'Family Car', 'Off-Road Car'];
 
 export const rentalSections = [

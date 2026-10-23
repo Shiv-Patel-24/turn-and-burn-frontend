@@ -1,16 +1,17 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { FiChevronLeft, FiChevronRight, FiHeart, FiShare2, FiMapPin, FiClock, FiShield, FiPhone, FiMail, FiCheck, FiCalendar, FiSettings } from 'react-icons/fi';
 import { FaStar, FaHeart } from 'react-icons/fa';
 import { TbGauge, TbPalette, TbGasStation } from 'react-icons/tb';
 import Layout from '../components/Layout';
 import { CarCard } from '../components/Cards';
 import { img, carAt } from '../data';
-import { navigate } from '../router';
+import { navigate, useRoute } from '../router';
 import { useUI } from '../ui';
+import { apiRequest } from '../lib/api';
 
-const gallery = [img('detail-1.jpg'), img('detail-2.jpg'), img('detail-3.jpg')];
+const defaultGallery = [img('detail-1.jpg'), img('detail-2.jpg'), img('detail-3.jpg')];
 
-const specs = [
+const defaultSpecs = [
   [FiSettings, 'Make', 'Toyota'], [FiSettings, 'Model', 'Camry'], [FiCalendar, 'Year', '2019'],
   [TbGauge, 'Mileage', '50,000 mi'], [TbPalette, 'Color', 'Blue'], [TbGasStation, 'Fuel Type', 'Gasoline'],
   [FiSettings, 'Transmission', 'Automatic'], [FiSettings, 'Drive Train', 'FWD'], [FiSettings, 'Body Type', 'Sedan'],
@@ -35,10 +36,55 @@ const reviews = [
 /* Figma: "MacBook Pro 14 - 5" (guest) / "MacBook Pro 14 - 8" (logged in) */
 export default function CarDetail({ role = 'guest' }) {
   const { open } = useUI();
+  const route = useRoute();
+  const carId = route?.params?.id;
+  const [vehicle, setVehicle] = useState(null);
   const [idx, setIdx] = useState(0);
   const [fav, setFav] = useState(false);
   const isUser = role === 'user';
   const guard = (fn) => () => (isUser ? fn() : open('signup'));
+
+  useEffect(() => {
+    if (!carId || carId === '1') return;
+    let active = true;
+    apiRequest(`/vehicles/${carId}`)
+      .then((res) => {
+        if (!active) return;
+        setVehicle(res?.data || null);
+        if (res?.data?.isFavorite) setFav(true);
+      })
+      .catch((err) => {
+        console.warn('Could not load specific vehicle from API, using fallback:', err.message);
+      });
+    return () => {
+      active = false;
+    };
+  }, [carId]);
+
+  const carName = vehicle
+    ? `${vehicle.year || ''} ${vehicle.make || ''} ${vehicle.model || ''}`.trim()
+    : 'Toyota Camry';
+  const carPrice = vehicle?.pricing?.dailyRate
+    ? `$${vehicle.pricing.dailyRate.toFixed(2)}`
+    : '$18,500';
+  const gallery = (vehicle?.photos && vehicle.photos.length > 0)
+    ? vehicle.photos.map((p) => p.url)
+    : defaultGallery;
+
+  const currentSpecs = vehicle ? [
+    [FiSettings, 'Make', vehicle.make || 'N/A'],
+    [FiSettings, 'Model', vehicle.model || 'N/A'],
+    [FiCalendar, 'Year', String(vehicle.year || 'N/A')],
+    [TbGauge, 'Mileage', vehicle.odometer ? `${vehicle.odometer.toLocaleString()} mi` : '50,000 mi'],
+    [TbPalette, 'Color', vehicle.color || 'Blue'],
+    [TbGasStation, 'Fuel Type', vehicle.fuelType || 'Gasoline'],
+    [FiSettings, 'Transmission', vehicle.transmission || 'Automatic'],
+    [FiSettings, 'Drive Train', vehicle.driveTrain || 'FWD'],
+    [FiSettings, 'Body Type', vehicle.style || 'Sedan'],
+    [FiSettings, 'Engine', vehicle.engine || '2.5L 4-Cylinder'],
+    [TbPalette, 'Interior', vehicle.interior || 'Black Leather'],
+    [FiSettings, 'VIN', vehicle.vin ? `${vehicle.vin.slice(0, 8)}******` : '4T1B11HK1KU******'],
+  ] : defaultSpecs;
 
   return (
     <Layout role={role}>
@@ -46,18 +92,18 @@ export default function CarDetail({ role = 'guest' }) {
         <div className="detail__main">
           <div className="card gallery">
             <div className="gallery__stage">
-              <img src={gallery[idx]} alt="Toyota Camry" />
-              <button type="button" className="gallery__nav gallery__nav--l" aria-label="Previous" onClick={() => setIdx((idx + 2) % 3)}>
+              <img src={gallery[idx] || defaultGallery[0]} alt={carName} />
+              <button type="button" className="gallery__nav gallery__nav--l" aria-label="Previous" onClick={() => setIdx((idx + gallery.length - 1) % gallery.length)}>
                 <FiChevronLeft size={20} />
               </button>
-              <button type="button" className="gallery__nav gallery__nav--r" aria-label="Next" onClick={() => setIdx((idx + 1) % 3)}>
+              <button type="button" className="gallery__nav gallery__nav--r" aria-label="Next" onClick={() => setIdx((idx + 1) % gallery.length)}>
                 <FiChevronRight size={20} />
               </button>
-              <span className="gallery__count">{idx + 1} / 3</span>
+              <span className="gallery__count">{idx + 1} / {gallery.length}</span>
             </div>
             <div className="gallery__thumbs">
               {gallery.map((g, i) => (
-                <button type="button" key={g} className={i === idx ? 'is-active' : ''} onClick={() => setIdx(i)}>
+                <button type="button" key={g || i} className={i === idx ? 'is-active' : ''} onClick={() => setIdx(i)}>
                   <img src={g} alt="" />
                 </button>
               ))}
@@ -66,7 +112,7 @@ export default function CarDetail({ role = 'guest' }) {
 
           <div className="card detail__title">
             <div className="detail__title-row">
-              <h1>Toyota Camry</h1>
+              <h1>{carName}</h1>
               <div className="detail__icons">
                 <button type="button" aria-label="Save" onClick={() => setFav(!fav)}>
                   {fav ? <FaHeart color="#ef4444" /> : <FiHeart />}
@@ -78,10 +124,10 @@ export default function CarDetail({ role = 'guest' }) {
             </div>
             <p className="detail__meta">
               <span>
-                <FiMapPin /> Charlotte, NC
+                <FiMapPin /> {vehicle?.location?.city ? `${vehicle.location.city}, ${vehicle.location.state || ''}` : 'Charlotte, NC'}
               </span>
               <span>
-                <TbGauge /> 50,000 miles
+                <TbGauge /> {vehicle?.odometer ? `${vehicle.odometer.toLocaleString()} miles` : '50,000 miles'}
               </span>
               <span>
                 <FaStar color="#FDB022" /> Good condition
@@ -90,13 +136,13 @@ export default function CarDetail({ role = 'guest' }) {
             <div className="detail__price-row">
               <div>
                 <small>Price</small>
-                <strong>$18,500</strong>
+                <strong>{carPrice}</strong>
               </div>
               <div className="detail__ctas">
                 <button type="button" className="btn btn-outline-primary" onClick={guard(() => navigate('/app/inbox'))}>
                   Contact Seller
                 </button>
-                <button type="button" className="btn btn-primary" onClick={guard(() => navigate('/app/book'))}>
+                <button type="button" className="btn btn-primary" onClick={guard(() => navigate(`/app/book?vehicle=${carId || vehicle?._id || ''}`))}>
                   Rent The Car
                 </button>
               </div>
@@ -106,7 +152,7 @@ export default function CarDetail({ role = 'guest' }) {
           <div className="card">
             <h2 className="card__title">Vehicle Specifications</h2>
             <div className="spec-grid">
-              {specs.map(([I, k, v]) => (
+              {currentSpecs.map(([I, k, v]) => (
                 <div className="spec" key={k}>
                   <span>
                     <I />

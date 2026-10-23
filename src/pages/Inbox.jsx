@@ -1,21 +1,58 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { FiSearch, FiMoreVertical, FiImage, FiSmile, FiSend, FiMapPin, FiMic, FiMessageSquare } from 'react-icons/fi';
 import { BsCheck2All } from 'react-icons/bs';
 import { FaStar } from 'react-icons/fa';
 import { TbBuildingSkyscraper } from 'react-icons/tb';
 import Layout from '../components/Layout';
 import { chats, img } from '../data';
+import { apiRequest } from '../lib/api';
 
 /* Figma: "MacBook Pro 14 - 16" (user) / "MacBook Pro 14 - 45" (host) — Inbox */
 export default function Inbox({ role = 'user' }) {
   const [active, setActive] = useState(0);
+  const [conversations, setConversations] = useState([]);
   const [text, setText] = useState('');
   const [mine, setMine] = useState(['Great 🔥 That’s a nice design Idea. 😍👏']);
-  const send = () => {
+
+  useEffect(() => {
+    let activeEffect = true;
+    apiRequest('/conversations')
+      .then((res) => {
+        if (!activeEffect) return;
+        const list = res?.data || [];
+        if (Array.isArray(list) && list.length > 0) {
+          setConversations(list);
+        }
+      })
+      .catch((err) => {
+        console.warn('Could not load conversations from server:', err.message);
+      });
+
+    return () => {
+      activeEffect = false;
+    };
+  }, []);
+
+  const send = async () => {
     if (!text.trim()) return;
-    setMine([...mine, text]);
+    const currentText = text.trim();
+    setMine((prev) => [...prev, currentText]);
     setText('');
+
+    const currentConv = conversations[active];
+    if (currentConv?._id || currentConv?.id) {
+      const convId = currentConv._id || currentConv.id;
+      try {
+        await apiRequest(`/conversations/${convId}/messages`, {
+          method: 'POST',
+          body: { body: currentText },
+        });
+      } catch (err) {
+        console.warn('Failed to send live message to server:', err.message);
+      }
+    }
   };
+
   return (
     <Layout role={role}>
       <div className="container inbox">

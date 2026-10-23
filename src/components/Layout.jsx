@@ -5,6 +5,7 @@ import { TbFileText, TbReceipt, TbRoad, TbChartBar } from 'react-icons/tb';
 import { Link, navigate } from '../router';
 import { img } from '../data';
 import { useUI, Modal } from '../ui';
+import { clearSession, getRefreshToken, apiRequest } from '../lib/api';
 
 /* role: 'guest' | 'user' | 'host' */
 export const base = (role) => (role === 'user' ? '/app' : role === 'host' ? '/host' : '');
@@ -207,13 +208,31 @@ export function HostMenu({ onClose }) {
 }
 
 export function LogoutModal({ onClose }) {
+  const handleConfirmLogout = async () => {
+    try {
+      const refreshToken = getRefreshToken();
+      if (refreshToken) {
+        await apiRequest('/auth/logout', {
+          method: 'POST',
+          body: { refreshToken },
+        }).catch(() => {});
+      }
+    } catch {
+      
+    } finally {
+      clearSession();
+      onClose();
+      navigate('/');
+    }
+  };
+
   return (
     <Modal onClose={onClose} width={924} className="logout">
       <button type="button" className="icon-btn logout__x" aria-label="Close" onClick={onClose}>
         <IoClose size={26} />
       </button>
       <h2>Do you want to log out!</h2>
-      <p>Lorem Ipsum is simply dummy text of the printing and typesetting industry. Lorem Ipsum has been the industry's standard dummy text ever since the 1500s.</p>
+      <p>Are you sure you want to log out of your account?</p>
       <div className="logout__actions">
         <button type="button" onClick={onClose}>
           Cancel
@@ -221,10 +240,7 @@ export function LogoutModal({ onClose }) {
         <span />
         <button
           type="button"
-          onClick={() => {
-            onClose();
-            navigate('/');
-          }}
+          onClick={handleConfirmLogout}
         >
           Confirm
         </button>
