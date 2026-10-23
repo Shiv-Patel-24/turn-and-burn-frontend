@@ -62,7 +62,7 @@ export async function apiRequest(path, options = {}) {
     throw new ApiError(message, { status: response.status, data });
   }
 
-  return data;
+  return { data };
 }
 
 export function setAccessToken(token) {
