@@ -23,7 +23,41 @@ function PageTitle({ title, children, right }) {
 }
 
 /* Figma: "Frame 1707480130" — add / edit a saved address */
-function LocationModal({ onClose }) {
+function LocationModal({ onClose, onCreated }) {
+  const [address, setAddress] = useState('');
+  const [label, setLabel] = useState('Home');
+  const [landmark, setLandmark] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    if (!address.trim()) {
+      setError('Please enter an address');
+      return;
+    }
+    setError('');
+    setLoading(true);
+    try {
+      const res = await apiRequest('/locations', {
+        method: 'POST',
+        body: {
+          address: address.trim(),
+          label: label.trim() || 'Home',
+          landmark: landmark.trim(),
+        },
+      });
+      if (res?.data && onCreated) {
+        onCreated(res.data);
+      }
+      onClose();
+    } catch (err) {
+      setError(err.message || 'Failed to save address');
+    } finally {
+      setLoading(false);
+    }
+  };
+
   return (
     <Modal onClose={onClose} width={932} className="loc-modal" bare>
       <div className="loc-modal__map">
@@ -34,41 +68,32 @@ function LocationModal({ onClose }) {
           <IoClose size={30} />
         </button>
       </div>
-      <div className="loc-modal__body">
+      <form className="loc-modal__body" onSubmit={handleSubmit}>
         <small>Your selected address</small>
-        <p className="loc-modal__addr">
-          <MdLocationOn size={22} />
-          <span>
-            <b>Ashok Nagar</b>
-            <small>Hyderabad, Telangana</small>
-          </span>
-        </p>
+        {error && (
+          <div style={{ color: '#ef4444', backgroundColor: '#fee2e2', padding: '8px 12px', borderRadius: '8px', marginBottom: '8px', fontSize: '13px' }}>
+            {error}
+          </div>
+        )}
         <fieldset>
           <legend>Location Details</legend>
           <label className="float-field">
-            <span>Block/Door No/Flat No/Street name</span>
-            <input placeholder="Type her" />
+            <span>Label (e.g. Home, Office)</span>
+            <input value={label} onChange={(e) => setLabel(e.target.value)} placeholder="Home" />
           </label>
           <label className="float-field">
-            <span>Land Mark(Optional)</span>
-            <input placeholder="Type here" />
+            <span>Address / Street name</span>
+            <input value={address} onChange={(e) => setAddress(e.target.value)} placeholder="Type address here..." required />
+          </label>
+          <label className="float-field">
+            <span>Landmark (Optional)</span>
+            <input value={landmark} onChange={(e) => setLandmark(e.target.value)} placeholder="Near city center..." />
           </label>
         </fieldset>
-        <fieldset>
-          <legend>Contact Person Details</legend>
-          <label className="float-field">
-            <span>Name</span>
-            <input placeholder="Type Name" />
-          </label>
-          <label className="float-field">
-            <span>Phone Number</span>
-            <input placeholder="+91" />
-          </label>
-        </fieldset>
-        <button type="button" className="btn btn-primary btn-block" onClick={onClose}>
-          Save
+        <button type="submit" className="btn btn-primary btn-block" disabled={loading}>
+          {loading ? 'Saving...' : 'Save'}
         </button>
-      </div>
+      </form>
     </Modal>
   );
 }
@@ -76,7 +101,40 @@ function LocationModal({ onClose }) {
 /* Figma: "MacBook Pro 14 - 17" — Saved Locations */
 export function SavedLocations() {
   const [modal, setModal] = useState(false);
-  const [items, setItems] = useState([1, 2, 3]);
+  const [locations, setLocations] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  const fetchLocations = () => {
+    apiRequest('/locations')
+      .then((res) => {
+        const list = res?.data || [];
+        setLocations(Array.isArray(list) ? list : []);
+      })
+      .catch((err) => {
+        console.warn('Could not load locations from server:', err.message);
+      })
+      .finally(() => setLoading(false));
+  };
+
+  useEffect(() => {
+    fetchLocations();
+  }, []);
+
+  const handleDelete = async (id) => {
+    if (!id) return;
+    setLocations((prev) => prev.filter((loc) => loc._id !== id));
+    try {
+      await apiRequest(`/locations/${id}`, { method: 'DELETE' });
+    } catch (err) {
+      console.warn('Delete location error:', err.message);
+    }
+  };
+
+  const displayList = locations.length > 0 ? locations : [
+    { _id: '1', label: 'Home', address: 'Flat No.: 108/77, Ashok Nagar', landmark: 'Hyderabad Airport' },
+    { _id: '2', label: 'Office', address: '47 W 13th St, New York', landmark: 'Near Washington Square' }
+  ];
+
   return (
     <Layout role="user">
       <div className="container">
@@ -88,34 +146,30 @@ export function SavedLocations() {
             </button>
           }
         />
+        {loading && <p style={{ color: '#888', padding: '10px 0' }}>Loading saved addresses...</p>}
         <div className="saved">
           <div className="saved__list">
-            {items.map((id) => (
-              <div className="saved__card" key={id}>
+            {displayList.map((loc) => (
+              <div className="saved__card" key={loc._id}>
                 <div className="saved__top">
                   <MdLocationOn size={20} />
                   <div>
-                    <b>New York City</b>
-                    <small>New York City, New York</small>
+                    <b>{loc.label || 'Saved Location'}</b>
+                    <small>{loc.address}</small>
                   </div>
-                  <button type="button" aria-label="Edit" onClick={() => setModal(true)}>
-                    <FiEdit2 />
-                  </button>
-                  <button type="button" aria-label="Delete" onClick={() => setItems(items.filter((x) => x !== id))}>
+                  <button type="button" aria-label="Delete" onClick={() => handleDelete(loc._id)}>
                     <FiTrash2 />
                   </button>
                 </div>
-                <p>Flat No.: 108/77</p>
-                <p>Land Mark : New York Airport</p>
-                <p>Name : John Dow</p>
-                <p>Phone Number : +1 7778 956 254</p>
+                <p>Address: {loc.address}</p>
+                {loc.landmark && <p>Landmark: {loc.landmark}</p>}
               </div>
             ))}
           </div>
           <img className="saved__map" src={img('saved-map.jpg')} alt="Map" />
         </div>
       </div>
-      {modal && <LocationModal onClose={() => setModal(false)} />}
+      {modal && <LocationModal onClose={() => setModal(false)} onCreated={fetchLocations} />}
     </Layout>
   );
 }
@@ -183,6 +237,28 @@ export function Profile({ role = 'user' }) {
     }
   };
 
+  const handlePhotoUpload = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const formData = new FormData();
+    formData.append('photo', file);
+    try {
+      setLoading(true);
+      const res = await apiRequest('/users/me/photo', {
+        method: 'POST',
+        body: formData,
+      });
+      if (res?.data) {
+        setUser(res.data);
+        setCurrentUser(res.data);
+      }
+    } catch (err) {
+      alert(err.message || 'Failed to upload profile photo');
+    } finally {
+      setLoading(false);
+    }
+  };
+
   return (
     <Layout role={role}>
       <div className="container profile">
@@ -190,7 +266,7 @@ export function Profile({ role = 'user' }) {
           Manage your account profile, contact details, and platform preferences.
         </PageTitle>
         <div className="profile__head">
-          <label className="profile__avatar">
+          <label className="profile__avatar" style={{ cursor: 'pointer' }}>
             <img
               src={user.profilePhotoUrl || img('avatar-user.jpg')}
               alt={(fullName || '').trim() ? `${fullName.trim()}'s profile picture` : 'User profile picture'}
@@ -198,7 +274,7 @@ export function Profile({ role = 'user' }) {
             <span>
               <FiCamera size={22} />
             </span>
-            <input type="file" accept="image/*" hidden />
+            <input type="file" accept="image/*" hidden onChange={handlePhotoUpload} />
           </label>
           <div>
             <b>{fullName || 'Alexa Rawles'}</b>
@@ -357,6 +433,63 @@ const payments = [
 /* Figma: "MacBook Pro 14 - 20" — Payment History */
 export function PaymentHistory() {
   const [cal, setCal] = useState(false);
+  const [list, setList] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let active = true;
+    apiRequest('/payments')
+      .then((res) => {
+        if (!active) return;
+        const items = res?.data || [];
+        setList(Array.isArray(items) ? items : []);
+      })
+      .catch((err) => {
+        console.warn('Could not load payments from server:', err.message);
+      })
+      .finally(() => {
+        if (active) setLoading(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  const handleExportCsv = async () => {
+    try {
+      const token = localStorage.getItem('turn_and_burn_access_token');
+      const res = await fetch('https://turn-and-burn-backend.onrender.com/api/v1/payments/export/csv', {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      const blob = await res.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'payments_export.csv';
+      a.click();
+      window.URL.revokeObjectURL(url);
+    } catch (err) {
+      console.warn('CSV export error:', err);
+    }
+  };
+
+  const handleDownloadInvoice = (paymentId) => {
+    if (!paymentId) return;
+    const token = localStorage.getItem('turn_and_burn_access_token');
+    window.open(`https://turn-and-burn-backend.onrender.com/api/v1/payments/${paymentId}/invoice?token=${token}`, '_blank');
+  };
+
+  const displayPayments = list.length > 0 ? list : payments.map((p, i) => ({
+    _id: `mock-${i}`,
+    referenceCode: '456789356',
+    createdAt: p[0],
+    payer: { firstName: p[2] },
+    payee: { firstName: p[3] },
+    amount: parseFloat(p[4].replace(/[^0-9.-]/g, '')) || 100,
+    status: p[5].toLowerCase(),
+    method: p[1] === 'P' ? 'paypal' : 'card',
+  }));
+
   return (
     <Layout role="user">
       <div className="container">
@@ -368,18 +501,16 @@ export function PaymentHistory() {
                 Sep 9, 2024 - Sep 15, 2024 <FiCalendar />
               </button>
               <div>
-                <button type="button" className="chip-btn">
+                <button type="button" className="chip-btn" onClick={handleExportCsv}>
                   Export CSV <FiFileText />
-                </button>
-                <button type="button" className="chip-btn">
-                  Download Invoices <FiFileText />
                 </button>
               </div>
             </div>
           }
         >
-          Lorem Ipsum is simply dummy text of the printing and typesetting industry. Lorem Ipsum has been the industry's standard dummy text ever since the 1500s.
+          View your completed and pending transactions, receipts, and invoices.
         </PageTitle>
+        {loading && <p style={{ color: '#888', padding: '10px 0' }}>Loading your transactions...</p>}
         <div className="table-wrap">
           <table className="table">
             <thead>
@@ -390,30 +521,34 @@ export function PaymentHistory() {
                 <th>Recipient</th>
                 <th>Amount</th>
                 <th>Status</th>
-                <th>Actions</th>
+                <th>Invoice</th>
               </tr>
             </thead>
             <tbody>
-              {payments.map(([d, ic, from, to, amt, st], i) => (
-                <tr key={i}>
-                  <td>456789356</td>
-                  <td>{d}</td>
-                  <td>
-                    <span className={`src src--${ic}`}>{ic === 'W' ? '7' : ic}</span>
-                    {from}
-                  </td>
-                  <td>{to}</td>
-                  <td className={amt.startsWith('-') ? 'muted' : 'b'}>{amt}</td>
-                  <td>
-                    <span className={`status status--${st.toLowerCase()}`}>{st}</span>
-                  </td>
-                  <td>
-                    <button type="button" className="icon-btn" aria-label="Actions">
-                      <FiMoreVertical />
-                    </button>
-                  </td>
-                </tr>
-              ))}
+              {displayPayments.map((p) => {
+                const dateStr = p.createdAt ? new Date(p.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : 'N/A';
+                const fromName = p.payer ? `${p.payer.firstName || ''} ${p.payer.lastName || ''}`.trim() || 'You' : 'You';
+                const toName = p.payee ? `${p.payee.firstName || ''} ${p.payee.lastName || ''}`.trim() || 'Turn & Burn' : 'Turn & Burn';
+                const statusStr = p.status || 'succeeded';
+                const isSuccess = statusStr === 'succeeded';
+                return (
+                  <tr key={p._id}>
+                    <td>{p.referenceCode || p._id?.slice(-8)}</td>
+                    <td>{dateStr}</td>
+                    <td>{fromName}</td>
+                    <td>{toName}</td>
+                    <td className="b">${Number(p.amount || 0).toFixed(2)}</td>
+                    <td>
+                      <span className={`status status--${isSuccess ? 'completed' : statusStr}`}>{statusStr}</span>
+                    </td>
+                    <td>
+                      <button type="button" className="chip-btn" style={{ padding: '4px 8px', fontSize: '12px' }} onClick={() => handleDownloadInvoice(p._id)}>
+                        PDF <FiFileText />
+                      </button>
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>

@@ -53,12 +53,34 @@ export default function Home({ role = 'guest' }) {
   }, []);
 
   const defaultMock = [0, 1, 2, 3, 4, 5, 0, 1, 2].map(carAt);
-  const gridCars = apiVehicles.length > 0
-    ? apiVehicles.slice(0, 9).map((v, i) => formatVehicle(v, i))
-    : defaultMock;
-  const rowCars = apiVehicles.length > 0
+  const formattedVehicles = apiVehicles.length > 0
     ? apiVehicles.map((v, i) => formatVehicle(v, i))
     : defaultMock;
+
+  // Filter cars when user clicks "Popular Car", "Luxury Car", "Vintage Car", "Family Car", "Off-Road Car"
+  const filterByTab = (cars, activeTab) => {
+    if (activeTab === 'Luxury Car') {
+      const lux = cars.filter((c) => (c.raw?.category || '').toLowerCase() === 'luxury');
+      return lux.length > 0 ? lux : cars;
+    }
+    if (activeTab === 'Family Car') {
+      const fam = cars.filter((c) => (c.raw?.style || '').toLowerCase() === 'suv' || (c.raw?.seats >= 5));
+      return fam.length > 0 ? fam : cars;
+    }
+    if (activeTab === 'Off-Road Car') {
+      const off = cars.filter((c) => ['suv', 'truck'].includes((c.raw?.style || '').toLowerCase()) || (c.raw?.driveTrain || '').toLowerCase() === 'awd');
+      return off.length > 0 ? off : cars;
+    }
+    if (activeTab === 'Vintage Car') {
+      const vin = cars.filter((c) => (c.raw?.year && c.raw.year <= 2020));
+      return vin.length > 0 ? vin : cars;
+    }
+    return cars;
+  };
+
+  const filteredTabCars = filterByTab(formattedVehicles, tab);
+  const gridCars = filteredTabCars.slice(0, 9);
+  const rowCars = formattedVehicles;
 
   return (
     <Layout role={role}>
@@ -83,7 +105,7 @@ export default function Home({ role = 'guest' }) {
             <Segmented options={['Hourly', 'Daily']} value={mode} onChange={setMode} />
             <Segmented options={['One Way Trip', 'Round Trip']} value={trip} onChange={setTrip} />
           </div>
-          <SearchPanel withTime ctaTo={isUser ? '/app/cars' : '/'} />
+          <SearchPanel withTime ctaTo={isUser ? '/app/cars' : '/app/cars'} />
         </div>
       </section>
 
@@ -98,7 +120,15 @@ export default function Home({ role = 'guest' }) {
         <h3 className="body-types__title">Rent by body type</h3>
         <div className="body-types">
           {bodyTypes.map(([label, icon], i) => (
-            <button key={i} type="button" className={`body-type ${body === i ? 'is-active' : ''}`} onClick={() => setBody(i)}>
+            <button
+              key={i}
+              type="button"
+              className={`body-type ${body === i ? 'is-active' : ''}`}
+              onClick={() => {
+                setBody(i);
+                navigate(`/app/cars?style=${encodeURIComponent(label)}`);
+              }}
+            >
               <img src={img(`body-${icon}.png`)} alt="" />
               <span>{label}</span>
             </button>

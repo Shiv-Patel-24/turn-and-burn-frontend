@@ -126,15 +126,49 @@ function SearchCell({ label, icon, iconRight, children, className = '', onClick 
  * Search panel used on Home (with time cells) and on the listing/favorites
  * screens (variant="compact", no time cells, dark CTA on listing).
  */
-export function SearchPanel({ withTime = true, ctaTo = '/app/cars', ctaDark = false, className = '' }) {
+export function SearchPanel({
+  withTime = true,
+  ctaTo = '/app/cars',
+  ctaDark = false,
+  className = '',
+  initialCity = '',
+  initialPickDate = '',
+  initialDropDate = '',
+  onSearch,
+}) {
   const [cal, setCal] = useState(null);
-  const [pick, setPick] = useState('12/12/2026');
-  const [drop, setDrop] = useState('12/12/2026');
+  const [pickupCity, setPickupCity] = useState(initialCity || '');
+  const [dropoffCity, setDropoffCity] = useState(initialCity || '');
+  const [pick, setPick] = useState(initialPickDate || '12/12/2026');
+  const [drop, setDrop] = useState(initialDropDate || '12/15/2026');
+
+  const handleSearchSubmit = () => {
+    const searchParams = new URLSearchParams();
+    const city = pickupCity.trim() || dropoffCity.trim();
+    if (city) searchParams.set('city', city);
+    if (pick) searchParams.set('pickupDate', pick);
+    if (drop) searchParams.set('dropoffDate', drop);
+
+    if (onSearch) {
+      onSearch({ city, pickupDate: pick, dropoffDate: drop, params: searchParams });
+      return;
+    }
+
+    const queryStr = searchParams.toString();
+    const target = queryStr ? `${ctaTo}?${queryStr}` : ctaTo;
+    navigate(target);
+  };
+
   return (
     <div className={`search ${withTime ? '' : 'search--compact'} ${className}`}>
       <div className="search__fields">
         <SearchCell label="Pick-up Location" className="search__cell--loc" icon={<FiMapPin size={20} />}>
-          <input placeholder="Search a location" />
+          <input
+            placeholder="Search city or location"
+            value={pickupCity}
+            onChange={(e) => setPickupCity(e.target.value)}
+            onKeyDown={(e) => e.key === 'Enter' && handleSearchSubmit()}
+          />
         </SearchCell>
         <SearchCell label="Pick-up date" className="search__cell--date" iconRight={<FiCalendar size={20} />} onClick={() => setCal('pick')}>
           <span>{pick}</span>
@@ -145,7 +179,12 @@ export function SearchPanel({ withTime = true, ctaTo = '/app/cars', ctaDark = fa
           </SearchCell>
         )}
         <SearchCell label="Drop-off Location" className="search__cell--loc" icon={<FiMapPin size={20} />}>
-          <input placeholder="Search a location" />
+          <input
+            placeholder="Search city or location"
+            value={dropoffCity}
+            onChange={(e) => setDropoffCity(e.target.value)}
+            onKeyDown={(e) => e.key === 'Enter' && handleSearchSubmit()}
+          />
         </SearchCell>
         <SearchCell label="Drop-off date" className="search__cell--date" iconRight={<FiCalendar size={20} />} onClick={() => setCal('drop')}>
           <span>{drop}</span>
@@ -156,7 +195,7 @@ export function SearchPanel({ withTime = true, ctaTo = '/app/cars', ctaDark = fa
           </SearchCell>
         )}
       </div>
-      <button type="button" className={`btn ${ctaDark ? 'btn-dark' : 'btn-primary'} search__cta`} onClick={() => navigate(ctaTo)}>
+      <button type="button" className={`btn ${ctaDark ? 'btn-dark' : 'btn-primary'} search__cta`} onClick={handleSearchSubmit}>
         Find a Vehicle <FiArrowRight size={18} />
       </button>
       {cal && (
