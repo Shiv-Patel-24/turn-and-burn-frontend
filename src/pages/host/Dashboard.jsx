@@ -105,16 +105,23 @@ export function HostCalendar() {
   );
 }
 
-function TripCard({ thumb, ending, onOpen }) {
+function TripCard({ booking, thumb, ending, onOpen }) {
+  const guestName = booking?.guest ? `${booking.guest.firstName || ''} ${booking.guest.lastName || ''}`.trim() : 'Marcus Dorwart';
+  const pickupLoc = booking?.pickup?.location || '47 W 13th St, New York, NY 10011, USA';
+  const dropoffLoc = booking?.dropoff?.location || '70 Washington Square South, New York, NY 10012, United States';
+  const earnings = booking?.pricing?.total != null ? `$${booking.pricing.total.toFixed(2)}` : '$225.00';
+  const duration = booking?.pricing?.numberOfHours ? `${booking.pricing.numberOfHours} hours` : '24 hours';
+  const carPhoto = booking?.vehicle?.photos?.[0]?.url || thumb;
+
   return (
     <button type="button" className="trip-card" onClick={onOpen}>
-      <Thumb src={thumb} />
+      <Thumb src={carPhoto} />
       <div className="trip-card__info">
         <div className="trip-card__row">
           <span className="ico-box">
             <FiUser />
           </span>
-          <b>Marcus Dorwart</b>
+          <b>{guestName}</b>
           <span className="ico-box">
             <TbArrowsRightLeft />
           </span>
@@ -122,21 +129,21 @@ function TripCard({ thumb, ending, onOpen }) {
           <span className="ico-box">
             <TbHourglass />
           </span>
-          <b>24 hours</b>
-          {ending && <span className="ending">Ending at 05:00 PM</span>}
+          <b>{duration}</b>
+          {ending && <span className="ending">Status: {booking?.status || 'Active'}</span>}
         </div>
         <div className="trip-card__row">
           <span className="ico-box">
             <FiDollarSign />
           </span>
-          <b>$225.00</b>
+          <b>{earnings}</b>
         </div>
         <div className="route">
           <p>
-            <i className="route__dot" /> 47 W 13th St, New York, NY 10011, USA
+            <i className="route__dot" /> {pickupLoc}
           </p>
           <p>
-            <FiMapPin className="route__pin" /> 70 Washington Square South, New York, NY 10012, United States
+            <FiMapPin className="route__pin" /> {dropoffLoc}
           </p>
         </div>
       </div>
@@ -145,7 +152,14 @@ function TripCard({ thumb, ending, onOpen }) {
 }
 
 /* Figma: "MacBook Pro 14 - 42" (Booked trip) / "MacBook Pro 14 - 44" (Trip history) drawers */
-function TripDrawer({ history, onClose }) {
+function TripDrawer({ booking, history, onClose }) {
+  const guestName = booking?.guest ? `${booking.guest.firstName || ''} ${booking.guest.lastName || ''}`.trim() : 'Desirae Carder';
+  const pickupLoc = booking?.pickup?.location || '47 W 13th St, New York, NY 10011, USA';
+  const dropoffLoc = booking?.dropoff?.location || '70 Washington Square South, New York, NY 10012, United States';
+  const earnings = booking?.pricing?.total != null ? `$${booking.pricing.total.toFixed(2)}` : '$225.00';
+  const pickupTime = booking?.pickup?.dateTime ? new Date(booking.pickup.dateTime).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' }) : 'Mon, Jul 6';
+  const dropoffTime = booking?.dropoff?.dateTime ? new Date(booking.dropoff.dateTime).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' }) : 'Tue, Jul 7';
+
   return (
     <Modal onClose={onClose} width={500} className="drawer" align="right">
       <div className="drawer__head">
@@ -157,17 +171,17 @@ function TripDrawer({ history, onClose }) {
       <h4>CLIENTS DETAILS</h4>
       <div className="client">
         <div className="client__avatar">
-          <img src={img('client.jpg')} alt="" />
+          <img src={booking?.guest?.profilePhotoUrl || img('client.jpg')} alt="" />
           <span>
             5.0 <FaStar color="#FDB022" />
           </span>
         </div>
         <div>
           <p>
-            Desirae Carder <a href="tel:+15242352369">(+1 524-235-2369)</a>
+            {guestName} <a href="tel:+15242352369">(+1 524-235-2369)</a>
           </p>
-          <p>Metrotech Center, Brooklyn, NY 11201, USA</p>
-          <p>2 trips</p>
+          <p>Reference: {booking?.referenceCode || '#BK-9761'}</p>
+          <p>Status: <span style={{ textTransform: 'capitalize' }}>{booking?.status || 'Active'}</span></p>
           <p>Joined Mar 2025</p>
         </div>
       </div>
@@ -181,21 +195,21 @@ function TripDrawer({ history, onClose }) {
       <h4>TRIP DETAILS</h4>
       <div className="trip-dates">
         <div>
-          <b>Mon, Jul 6</b>
+          <b>{pickupTime}</b>
           <small>5:00 PM</small>
         </div>
         <FiArrowRight size={40} strokeWidth={1.4} />
         <div>
-          <b>Tue, Jul 7</b>
+          <b>{dropoffTime}</b>
           <small>5:00 PM</small>
         </div>
       </div>
       <div className="route route--lg">
         <p>
-          <i className="route__dot" /> 47 W 13th St, New York, NY 10011, USA
+          <i className="route__dot" /> {pickupLoc}
         </p>
         <p>
-          <FiMapPin className="route__pin" /> 70 Washington Square South, New York, NY 10012, United States
+          <FiMapPin className="route__pin" /> {dropoffLoc}
         </p>
       </div>
       <div className="trip-facts">
@@ -209,7 +223,7 @@ function TripDrawer({ history, onClose }) {
         </div>
         <div>
           <h4>TOTAL EARNINGS</h4>
-          <p>$225.00</p>
+          <p>{earnings}</p>
         </div>
         <div>
           <h4>CANCELATION POLICY</h4>
@@ -244,14 +258,40 @@ function TripDrawer({ history, onClose }) {
 
 /* Figma: "MacBook Pro 14 - 41" (Booked) / "MacBook Pro 14 - 43" (History) */
 export function HostTrips({ tab = 'booked' }) {
-  const [drawer, setDrawer] = useState(false);
+  const [selectedBooking, setSelectedBooking] = useState(null);
+  const [serverBookings, setServerBookings] = useState([]);
+  const [loading, setLoading] = useState(true);
   const history = tab === 'history';
-  const groups = history
+
+  useEffect(() => {
+    let active = true;
+    setLoading(true);
+    const scope = history ? 'previous' : 'current';
+    apiRequest(`/bookings?role=host&scope=${scope}`)
+      .then((res) => {
+        if (!active) return;
+        const list = res?.data || [];
+        if (Array.isArray(list)) {
+          setServerBookings(list);
+        }
+      })
+      .catch((err) => console.warn('Could not fetch host bookings from server:', err.message))
+      .finally(() => {
+        if (active) setLoading(false);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [history]);
+
+  const defaultGroups = history
     ? [
         ['Monday, July 6, 2026', tripThumbs.slice(0, 5)],
         ['Sunday, July 5, 2026', tripThumbs.slice(5)],
       ]
     : [['Monday, July 6, 2026', [img('trip-0.jpg')]]];
+
   return (
     <Layout role="host">
       <div className="container trips">
@@ -272,23 +312,39 @@ export function HostTrips({ tab = 'booked' }) {
             <VehiclePopover />
           </div>
         </div>
-        {groups.map(([day, list]) => (
-          <div key={day}>
-            <h2 className="trips__day">{day}</h2>
-            {list.map((t, i) => (
-              <TripCard key={i} thumb={t} ending={!history} onOpen={() => setDrawer(true)} />
+        {loading && <p style={{ color: '#888', padding: '10px 0' }}>Loading host reservations...</p>}
+        {serverBookings.length > 0 ? (
+          <div>
+            <h2 className="trips__day">{history ? 'Completed Trips' : 'Active Reservations'}</h2>
+            {serverBookings.map((b) => (
+              <TripCard
+                key={b._id || b.id}
+                booking={b}
+                thumb={b.vehicle?.photos?.[0]?.url || img('trip-0.jpg')}
+                ending={!history}
+                onOpen={() => setSelectedBooking(b)}
+              />
             ))}
           </div>
-        ))}
+        ) : (
+          defaultGroups.map(([day, list]) => (
+            <div key={day}>
+              <h2 className="trips__day">{day}</h2>
+              {list.map((t, i) => (
+                <TripCard key={i} thumb={t} ending={!history} onOpen={() => setSelectedBooking({})} />
+              ))}
+            </div>
+          ))
+        )}
       </div>
-      {drawer && <TripDrawer history={history} onClose={() => setDrawer(false)} />}
+      {selectedBooking && <TripDrawer booking={selectedBooking} history={history} onClose={() => setSelectedBooking(null)} />}
     </Layout>
   );
 }
 
 /* Figma: "MacBook Pro 14 - 46" — Vehicles */
 export function HostVehicles() {
-  const [list, setList] = useState(hostVehicles);
+  const [list, setList] = useState([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -301,15 +357,18 @@ export function HostVehicles() {
           const mapped = vehicles.map((v, i) => ({
             id: v._id || v.id || i + 1,
             name: `${v.year || ''} ${v.make || ''} ${v.model || ''}`.trim() || 'Vehicle',
-            image: v.photos?.[0]?.url || hostVehicles[i % hostVehicles.length].image,
-            plate: v.licensePlate || 'ABC-1234',
-            state: v.licensePlateState || v.location?.state || 'NY',
+            image: v.photos?.[0]?.url || '',
+            plate: v.licensePlate || 'POR1234',
+            state: v.licensePlateState || v.location?.state || 'NC',
             status: v.listingStatus === 'listed' ? 'Listed' : v.listingStatus === 'snoozed' ? 'Snoozed' : 'Unlisted',
             lastTrip: 'Active',
             rating: v.ratingsAverage || 5.0,
             trips: v.ratingsCount || 0,
+            raw: v,
           }));
           setList(mapped);
+        } else if (Array.isArray(vehicles) && vehicles.length === 0) {
+          setList([]);
         }
       })
       .catch((err) => {
@@ -366,12 +425,39 @@ export function HostVehicles() {
             </button>
           </div>
         </div>
-        {loading && <p style={{ color: '#888', padding: '10px 0' }}>Loading your fleet listings...</p>}
-        <div className="veh-grid">
+        {loading ? (
+          <div style={{ textAlign: 'center', padding: '60px 20px', color: '#666' }}>
+            <div className="spinner" style={{ margin: '0 auto 16px', width: 36, height: 36, border: '3px solid #eee', borderTopColor: '#0075ff', borderRadius: '50%', animation: 'spin 0.8s linear infinite' }} />
+            <p>Loading your vehicles...</p>
+          </div>
+        ) : list.length === 0 ? (
+          <div style={{ textAlign: 'center', padding: '60px 20px', background: '#fff', borderRadius: 16 }}>
+            <h3 style={{ marginBottom: 8 }}>No vehicles found</h3>
+            <p style={{ color: '#888', marginBottom: 20 }}>You have not listed any vehicles yet.</p>
+            <button type="button" className="btn btn-primary" onClick={() => navigate('/host/list/location')}>
+              List your first car
+            </button>
+          </div>
+        ) : (
+          <div className="veh-grid">
           {list.map((v) => (
             <article className="veh-card" key={v.id}>
               <div className="veh-card__img" onClick={() => navigate(`/host/vehicles/${v.id}/location`)}>
-                <img src={v.image} alt={v.name} />
+                {v.image ? (
+                  <img
+                    src={v.image}
+                    alt={v.name}
+                    onError={(e) => {
+                      e.currentTarget.onerror = null;
+                      e.currentTarget.src = img('car1.jpg');
+                    }}
+                  />
+                ) : (
+                  <div style={{ width: '100%', height: '100%', minHeight: 180, background: '#f4f6f8', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', color: '#999' }}>
+                    <span style={{ fontSize: 32, marginBottom: 4 }}>📷</span>
+                    <span style={{ fontSize: 13, fontWeight: 500 }}>No photos uploaded</span>
+                  </div>
+                )}
               </div>
               <StatusMenu status={v.status} onChange={(s) => handleStatusChange(v.id, s)} />
               <button type="button" className="veh-card__body" onClick={() => navigate(`/host/vehicles/${v.id}/location`)}>
@@ -388,7 +474,8 @@ export function HostVehicles() {
               </button>
             </article>
           ))}
-        </div>
+          </div>
+        )}
       </div>
     </Layout>
   );

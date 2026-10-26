@@ -3,6 +3,7 @@ import { FaHeart, FaRegHeart, FaStar } from 'react-icons/fa';
 import { FiChevronLeft, FiChevronRight } from 'react-icons/fi';
 import { TbGauge, TbManualGearbox, TbUsers, TbGasStation } from 'react-icons/tb';
 import { img } from '../data';
+import { apiRequest } from '../lib/api';
 
 /* Car card — Figma "Component 6..17 / 20..34" */
 export function CarCard({ car, onRent, liked: likedInit = false, size = 'lg', onToggleFavorite }) {
@@ -117,28 +118,63 @@ const testimonials = [
 
 /* "What peole say about us?" testimonial slider */
 export function Testimonials() {
+  const [liveTestimonials, setLiveTestimonials] = useState([]);
   const ref = useRef(null);
   const scroll = (dir) => ref.current && ref.current.scrollBy({ left: dir * 834, behavior: 'smooth' });
+
+  useEffect(() => {
+    let active = true;
+    apiRequest('/content/testimonials?limit=8')
+      .then((res) => {
+        if (!active) return;
+        const list = res?.data || [];
+        if (Array.isArray(list) && list.length > 0) {
+          setLiveTestimonials(list);
+        }
+      })
+      .catch(() => {});
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  const items = liveTestimonials.length > 0
+    ? liveTestimonials.map((t, i) => ({
+        img: t.photoUrl || img(`testimonial-${(i % 3) + 1}.jpg`),
+        name: t.name || 'Verified Driver',
+        text: t.comment ? `“${t.comment}”` : testimonials[i % testimonials.length].text,
+        rating: t.rating || 5,
+        subtitle: t.vehicle || 'From New York, US',
+      }))
+    : testimonials.map((t) => ({ ...t, rating: 5, subtitle: 'From New York, US' }));
+
   return (
     <section className="testimonials">
       <span className="eyebrow">TESTIMONIALS</span>
       <h2>What peole say about us?</h2>
       <div className="testimonials__track" ref={ref}>
-        {testimonials.map((t, i) => (
+        {items.map((t, i) => (
           <article className="testimonial" key={i}>
-            <img src={t.img} alt={t.name} />
+            <img
+              src={t.img}
+              alt={t.name}
+              onError={(e) => {
+                e.target.onerror = null;
+                e.target.src = img('testimonial-1.jpg');
+              }}
+            />
             <div className="testimonial__body">
               <p className="testimonial__score">
-                5.0 <small>stars</small>
+                {(t.rating || 5).toFixed(1)} <small>stars</small>
               </p>
               <div className="testimonial__stars">
-                {[1, 2, 3, 4, 5].map((s) => (
+                {Array.from({ length: Math.round(t.rating || 5) }).map((_, s) => (
                   <FaStar key={s} />
                 ))}
               </div>
               <p className="testimonial__text">{t.text}</p>
               <strong>{t.name}</strong>
-              <small>From New York, US</small>
+              <small>{t.subtitle}</small>
             </div>
           </article>
         ))}

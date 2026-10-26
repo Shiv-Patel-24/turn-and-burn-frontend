@@ -39,14 +39,19 @@ export default function CarDetail({ role = 'guest' }) {
   const route = useRoute();
   const carId = route?.params?.id;
   const [vehicle, setVehicle] = useState(null);
+  const [vehicleReviews, setVehicleReviews] = useState([]);
+  const [reviewSummary, setReviewSummary] = useState(null);
   const [idx, setIdx] = useState(0);
   const [fav, setFav] = useState(false);
+  const [loading, setLoading] = useState(true);
   const isUser = role === 'user';
   const guard = (fn) => () => (isUser ? fn() : open('signup'));
 
   useEffect(() => {
-    if (!carId || carId === '1') return;
+    if (!carId) return;
     let active = true;
+    setLoading(true);
+
     apiRequest(`/vehicles/${carId}`)
       .then((res) => {
         if (!active) return;
@@ -54,19 +59,59 @@ export default function CarDetail({ role = 'guest' }) {
         if (res?.data?.isFavorite) setFav(true);
       })
       .catch((err) => {
-        console.warn('Could not load specific vehicle from API, using fallback:', err.message);
+        console.warn('Could not load vehicle from API:', err.message);
+        // Fallback: search vehicles array
+        apiRequest('/vehicles/search')
+          .then((res) => {
+            if (!active) return;
+            const list = res?.data?.results || res?.data || [];
+            const found = list.find((v) => String(v._id) === String(carId) || String(v.id) === String(carId));
+            if (found) setVehicle(found);
+          })
+          .catch(() => {});
+      })
+      .finally(() => {
+        if (active) setLoading(false);
       });
+
+    // Fetch live reviews and summary
+    apiRequest(`/reviews/vehicle/${carId}`)
+      .then((res) => {
+        if (!active) return;
+        const list = res?.data?.reviews || [];
+        if (Array.isArray(list) && list.length > 0) setVehicleReviews(list);
+      })
+      .catch(() => {});
+
+    apiRequest(`/reviews/vehicle/${carId}/summary`)
+      .then((res) => {
+        if (!active) return;
+        if (res?.data) setReviewSummary(res.data);
+      })
+      .catch(() => {});
+
     return () => {
       active = false;
     };
   }, [carId]);
 
+  if (loading && !vehicle) {
+    return (
+      <Layout role={role}>
+        <div className="container" style={{ padding: '80px 0', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', minHeight: '60vh' }}>
+          <div className="spinner" style={{ width: 44, height: 44, border: '4px solid #e2e8f0', borderTopColor: 'var(--blue, #2d55fb)', borderRadius: '50%', marginBottom: 16 }} />
+          <p style={{ color: '#64748b', fontSize: 16, fontWeight: 500 }}>Loading vehicle details...</p>
+        </div>
+      </Layout>
+    );
+  }
+
   const carName = vehicle
     ? `${vehicle.year || ''} ${vehicle.make || ''} ${vehicle.model || ''}`.trim()
-    : 'Toyota Camry';
+    : 'Vehicle Details';
   const carPrice = vehicle?.pricing?.dailyRate
     ? `$${vehicle.pricing.dailyRate.toFixed(2)}`
-    : '$18,500';
+    : '$78.90';
   const gallery = (vehicle?.photos && vehicle.photos.length > 0)
     ? vehicle.photos.map((p) => p.url)
     : defaultGallery;
@@ -199,21 +244,21 @@ export default function CarDetail({ role = 'guest' }) {
             <h2 className="card__title">Seller Ratings &amp; Reviews</h2>
             <div className="rating-summary">
               <div className="rating-summary__score">
-                <strong>4.89</strong>
+                <strong>{reviewSummary?.average || vehicle?.ratingsAverage || '4.89'}</strong>
                 <span className="stars-row">
                   {[1, 2, 3, 4, 5].map((s) => (
                     <FaStar key={s} color="#FDB022" />
                   ))}
                 </span>
-                <small>168 reviews</small>
+                <small>{reviewSummary?.total || vehicle?.ratingsCount || '168'} reviews</small>
               </div>
               <div className="rating-bars">
                 {[
-                  ['5 star', 142, 85],
-                  ['4 star', 18, 10],
-                  ['3 star', 5, 3],
-                  ['2 star', 2, 1],
-                  ['1 star', 1, 1],
+                  ['5 star', reviewSummary?.distribution?.[5] || 142, 85],
+                  ['4 star', reviewSummary?.distribution?.[4] || 18, 10],
+                  ['3 star', reviewSummary?.distribution?.[3] || 5, 3],
+                  ['2 star', reviewSummary?.distribution?.[2] || 2, 1],
+                  ['1 star', reviewSummary?.distribution?.[1] || 1, 1],
                 ].map(([l, n, p]) => (
                   <div key={l}>
                     <span>{l}</span>
@@ -225,7 +270,13 @@ export default function CarDetail({ role = 'guest' }) {
                 ))}
               </div>
             </div>
-            {reviews.map(([ini, name, date, stars, text]) => (
+            {(vehicleReviews.length > 0 ? vehicleReviews.map((r) => [
+              (r.reviewer?.firstName?.[0] || 'U') + (r.reviewer?.lastName?.[0] || ''),
+              `${r.reviewer?.firstName || 'Guest'} ${r.reviewer?.lastName || ''}`.trim(),
+              new Date(r.createdAt).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }),
+              r.overallRating || 5,
+              r.comment || 'Smooth rental experience.'
+            ]) : reviews).map(([ini, name, date, stars, text]) => (
               <div className="review" key={name}>
                 <span className="review__ini">{ini}</span>
                 <div>
@@ -235,7 +286,7 @@ export default function CarDetail({ role = 'guest' }) {
                       <small>{date}</small>
                     </div>
                     <span className="stars-row">
-                      {Array.from({ length: stars }).map((_, s) => (
+                      {Array.from({ length: Math.round(stars) }).map((_, s) => (
                         <FaStar key={s} color="#FDB022" />
                       ))}
                     </span>

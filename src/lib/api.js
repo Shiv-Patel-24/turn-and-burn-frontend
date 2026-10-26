@@ -37,11 +37,43 @@ export async function apiRequest(path, options = {}) {
   const token = localStorage.getItem('turn_and_burn_access_token');
   if (token) requestHeaders.set('Authorization', `Bearer ${token}`);
 
-  const response = await fetch(getUrl(path), {
+  let response = await fetch(getUrl(path), {
     ...requestOptions,
     body: requestBody,
     headers: requestHeaders,
   });
+
+  // Silent Token Refresh Interceptor on 401
+  if (response.status === 401 && !path.includes('/auth/refresh') && !path.includes('/auth/login')) {
+    const refreshToken = getRefreshToken();
+    if (refreshToken) {
+      try {
+        const refreshRes = await fetch(getUrl('/auth/refresh'), {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Accept: 'application/json',
+          },
+          body: JSON.stringify({ refreshToken }),
+        });
+        const refreshData = await readResponse(refreshRes);
+        const newAccessToken = refreshData?.data?.accessToken;
+        if (newAccessToken) {
+          setAccessToken(newAccessToken);
+          requestHeaders.set('Authorization', `Bearer ${newAccessToken}`);
+          // Retry original request with newly issued access token
+          response = await fetch(getUrl(path), {
+            ...requestOptions,
+            body: requestBody,
+            headers: requestHeaders,
+          });
+        }
+      } catch (refreshErr) {
+        console.warn('Auto token refresh failed:', refreshErr);
+      }
+    }
+  }
+
   const data = await readResponse(response);
 
   if (!response.ok) {
@@ -62,7 +94,7 @@ export async function apiRequest(path, options = {}) {
     throw new ApiError(message, { status: response.status, data });
   }
 
-  return { data };
+  return data;
 }
 
 export function setAccessToken(token) {

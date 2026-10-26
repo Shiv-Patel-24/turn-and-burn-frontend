@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { FiChevronLeft, FiTrash2, FiCamera, FiInfo } from 'react-icons/fi';
 import { FaStar } from 'react-icons/fa';
 import { IoCarOutline, IoClose } from 'react-icons/io5';
@@ -8,6 +8,7 @@ import { Field, Input, Checkbox, Toggle, Modal } from '../../ui';
 import { CarSections, LicenseFields, GoalFields, AvailabilityFields, DetailsFields, PriceRange, FileDialog, UploadTile, AddressInput } from './Onboarding';
 import { img, hostVehicles, LOREM_SHORT, LOREM_LONG } from '../../data';
 import { navigate, useRoute, Link } from '../../router';
+import { apiRequest } from '../../lib/api';
 
 const NAV = [
   ['location', 'Location'],
@@ -40,11 +41,18 @@ function CustomLocationModal({ onClose }) {
   );
 }
 
-function SaveBtn() {
+function SaveBtn({ onSave, loading }) {
   const [s, setS] = useState(false);
+  const handleClick = async () => {
+    if (onSave) {
+      await onSave();
+    }
+    setS(true);
+    setTimeout(() => setS(false), 2500);
+  };
   return (
-    <button type="button" className="btn btn-primary btn-upper btn-next" onClick={() => setS(true)}>
-      {s ? 'SAVED' : 'SAVE'}
+    <button type="button" className="btn btn-primary btn-upper btn-next" disabled={loading} onClick={handleClick}>
+      {s ? 'SAVED' : loading ? 'SAVING...' : 'SAVE'}
     </button>
   );
 }
@@ -80,7 +88,10 @@ function DiscountCard({ title, rows, note, action = 'Edit' }) {
 export default function VehicleEdit() {
   const { params } = useRoute();
   const section = params.section || 'location';
-  const vehicle = hostVehicles.find((v) => String(v.id) === params.id) || hostVehicles[0];
+  const fallback = hostVehicles.find((v) => String(v.id) === params.id) || hostVehicles[0];
+
+  const [vehicleData, setVehicleData] = useState(null);
+  const [loadingVeh, setLoadingVeh] = useState(true);
   const [customLoc, setCustomLoc] = useState(false);
   const [file, setFile] = useState(null);
   const [avatar, setAvatar] = useState(img('avatar-host.jpg'));
@@ -88,7 +99,92 @@ export default function VehicleEdit() {
   const [sms, setSms] = useState(false);
   const [features, setFeatures] = useState(['All-wheel drive', 'Android Auto', 'AUX input', 'Backup camera', 'Blind spot warning', 'Bluetooth', 'Child seat', 'Heated seats', 'Keyless entry', 'Sunroof', 'USB charger', 'USB input']);
   const [auto, setAuto] = useState(true);
-  const to = (s) => `/host/vehicles/${vehicle.id}/${s}`;
+  const [dailyRate, setDailyRate] = useState(189.9);
+  const [minPrice, setMinPrice] = useState(120);
+  const [maxPrice, setMaxPrice] = useState(250);
+
+  useEffect(() => {
+    if (!params.id) return;
+    let active = true;
+    const fetchCar = async () => {
+      try {
+        let res = await apiRequest(`/vehicles/${params.id}`);
+        let v = res?.data;
+        if (!v) {
+          res = await apiRequest(`/vehicles/mine/${params.id}`);
+          v = res?.data;
+        }
+        if (!v) {
+          const fleetRes = await apiRequest('/vehicles');
+          const list = fleetRes?.data || [];
+          v = list.find((x) => (x._id || x.id) === params.id);
+        }
+        if (active && v) {
+          setVehicleData(v);
+          if (v.photos && v.photos.length > 0) {
+            setPhotos(v.photos.map((p) => p.url));
+          }
+          if (v.features && Array.isArray(v.features)) {
+            setFeatures(v.features);
+          }
+          if (v.pricing?.dailyRate) {
+            setDailyRate(v.pricing.dailyRate);
+          }
+          if (v.pricing?.minPrice) setMinPrice(v.pricing.minPrice);
+          if (v.pricing?.maxPrice) setMaxPrice(v.pricing.maxPrice);
+        }
+      } catch (err) {
+        try {
+          const fleetRes = await apiRequest('/vehicles');
+          const list = fleetRes?.data || [];
+          const v = list.find((x) => (x._id || x.id) === params.id);
+          if (active && v) {
+            setVehicleData(v);
+          }
+        } catch {
+          console.warn('Could not fetch vehicle from server:', err.message);
+        }
+      } finally {
+        if (active) setLoadingVeh(false);
+      }
+    };
+    fetchCar();
+    return () => {
+      active = false;
+    };
+  }, [params.id]);
+
+  const vehicleId = vehicleData?._id || vehicleData?.id || params.id;
+  const vehicleName = vehicleData
+    ? `${vehicleData.year || ''} ${vehicleData.make || ''} ${vehicleData.model || ''}`.trim()
+    : 'Vehicle Details';
+  const vehiclePlate = vehicleData?.licensePlate || 'POR1234';
+  const vehicleState = vehicleData?.licensePlateState || vehicleData?.location?.state || 'NC';
+  const vehicleImage = vehicleData?.photos?.[0]?.url || '';
+  const vehicleAddress = vehicleData?.location?.address
+    ? `${vehicleData.location.address}, ${vehicleData.location.city || ''} ${vehicleData.location.state || ''}`.trim()
+    : '70 Washington Square South, New York, NY 10012, United States';
+
+  const to = (s) => `/host/vehicles/${vehicleId}/${s}`;
+
+  const handleSave = async () => {
+    try {
+      await apiRequest(`/vehicles/${vehicleId}`, {
+        method: 'PATCH',
+        body: {
+          features,
+          pricing: {
+            dailyRate: Number(dailyRate) || 189.9,
+            minPrice: Number(minPrice) || 120,
+            maxPrice: Number(maxPrice) || 250,
+            automaticPricingEnabled: auto,
+          },
+        },
+      });
+    } catch (e) {
+      console.warn('Vehicle update failed:', e.message);
+    }
+  };
 
   let body;
   switch (section) {
@@ -101,8 +197,8 @@ export default function VehicleEdit() {
             <div className="loc-card">
               <IoCarOutline size={24} />
               <div>
-                <h4>70 Washington Square South, New York, NY 10012, United States</h4>
-                <p>Lorem Ipsum is simply dummy text of the printing and typesetting industry. Lorem Ipsum has been the industry's</p>
+                <h4>{vehicleAddress}</h4>
+                <p>{vehicleData?.description || LOREM_SHORT}</p>
               </div>
             </div>
             <h6>CUSTOM LOCATION</h6>
@@ -110,7 +206,7 @@ export default function VehicleEdit() {
               <MdOutlineLocationOn size={26} />
               <div>
                 <h4>Offer delivery to location of your guest’s choice, within a specific radius.</h4>
-                <p>Lorem Ipsum is simply dummy text of the printing and typesetting industry. Lorem Ipsum has been the industry's</p>
+                <p>Delivery radius: {vehicleData?.deliveryRadiusMiles || 25} miles.</p>
               </div>
             </button>
           </div>
@@ -123,13 +219,26 @@ export default function VehicleEdit() {
           <h2 className="step__h step__h--first">VIN</h2>
           <p className="step__p">We’ll use your Vehicle Identification Number (VIN) to identify your specific car</p>
           <Field label="Enter your VIN">
-            <Input defaultValue="123456789123456789" />
+            <Input defaultValue={vehicleData?.vin || 'WP1AA2AY5NDA00001'} />
           </Field>
-          <Checkbox checked onChange={() => {}} className="check--blue">
+          <Checkbox checked={false} onChange={() => {}} className="check--blue">
             My vehicle is older than 1981
           </Checkbox>
-          <CarSections values />
-          <SaveBtn />
+          <CarSections
+            values={
+              vehicleData
+                ? {
+                    year: vehicleData.year,
+                    make: vehicleData.make,
+                    model: vehicleData.model,
+                    style: vehicleData.style,
+                    odometer: vehicleData.odometer,
+                    transmission: vehicleData.transmission,
+                  }
+                : true
+            }
+          />
+          <SaveBtn onSave={handleSave} />
         </div>
       );
       break;
@@ -163,7 +272,7 @@ export default function VehicleEdit() {
           <Checkbox checked={sms} onChange={setSms}>
             Get important trip updates via text message.
           </Checkbox>
-          <SaveBtn />
+          <SaveBtn onSave={handleSave} />
         </div>
       );
       break;
@@ -173,7 +282,7 @@ export default function VehicleEdit() {
           <h2 className="step__title">Driver’s license</h2>
           <p className="step__p">{LOREM_SHORT}</p>
           <LicenseFields filled />
-          <SaveBtn />
+          <SaveBtn onSave={handleSave} />
         </div>
       );
       break;
@@ -183,7 +292,7 @@ export default function VehicleEdit() {
           <h2 className="step__title">Your goals</h2>
           <p className="step__p">{LOREM_SHORT}</p>
           <GoalFields value={{ goal: 'Cover your car payment', use: 'Rarely: once a week or less', share: 'Rarely: a few times per month' }} />
-          <SaveBtn />
+          <SaveBtn onSave={handleSave} />
         </div>
       );
       break;
@@ -192,8 +301,14 @@ export default function VehicleEdit() {
         <div className="veh-form">
           <h2 className="step__title">Car availability</h2>
           <p className="step__p">{LOREM_SHORT}</p>
-          <AvailabilityFields value={{ notice: '1 day (recommended)', min: '1 day (recommended)', max: '2 weeks (recommended)' }} />
-          <SaveBtn />
+          <AvailabilityFields
+            value={{
+              notice: vehicleData?.tripPreferences?.advanceNoticeHours ? `${vehicleData.tripPreferences.advanceNoticeHours / 24} day` : '1 day (recommended)',
+              min: '1 day (recommended)',
+              max: '2 weeks (recommended)',
+            }}
+          />
+          <SaveBtn onSave={handleSave} />
         </div>
       );
       break;
@@ -201,9 +316,16 @@ export default function VehicleEdit() {
       body = (
         <div className="veh-form">
           <h2 className="step__title">Car details</h2>
-          <p className="step__p">{LOREM_SHORT}</p>
-          <DetailsFields filled features={features} setFeatures={setFeatures} />
-          <SaveBtn />
+          <p className="step__p">{vehicleData?.description || LOREM_SHORT}</p>
+          <DetailsFields
+            filled
+            features={features}
+            setFeatures={setFeatures}
+            defaultPlate={vehiclePlate}
+            defaultState={vehicleState}
+            defaultDesc={vehicleData?.description}
+          />
+          <SaveBtn onSave={handleSave} />
         </div>
       );
       break;
@@ -297,33 +419,66 @@ export default function VehicleEdit() {
           <button type="button" className="back-sq" aria-label="Back to vehicles" onClick={() => navigate('/host/vehicles')}>
             <FiChevronLeft size={26} />
           </button>
-          <h1>{vehicle.name}</h1>
+          <h1>{loadingVeh ? 'Loading vehicle...' : vehicleName}</h1>
         </div>
-        <p className="veh-edit__lead">{LOREM_SHORT}</p>
-        <div className="veh-edit__grid">
-          <aside className="veh-edit__side">
-            <div className="veh-mini">
-              <div className="veh-mini__img">
-                <img src={img('veh-mini.jpg')} alt={vehicle.name} />
-              </div>
-              <div className="veh-mini__body">
-                <h3>{vehicle.name}</h3>
-                <p>
-                  NY <span>•</span> WB12339A
-                </p>
-                <small>Last trip: May 6 - May 30</small>
-              </div>
+        {loadingVeh ? (
+          <div style={{ textAlign: 'center', padding: '100px 20px', color: '#666' }}>
+            <div
+              className="spinner"
+              style={{
+                margin: '0 auto 16px',
+                width: 36,
+                height: 36,
+                border: '3px solid #eee',
+                borderTopColor: '#0075ff',
+                borderRadius: '50%',
+                animation: 'spin 0.8s linear infinite',
+              }}
+            />
+            <p>Loading vehicle details...</p>
+          </div>
+        ) : (
+          <>
+            <p className="veh-edit__lead">{vehicleData?.description || LOREM_SHORT}</p>
+            <div className="veh-edit__grid">
+              <aside className="veh-edit__side">
+                <div className="veh-mini">
+                  <div className="veh-mini__img">
+                    {vehicleImage ? (
+                      <img
+                        src={vehicleImage}
+                        alt={vehicleName}
+                        onError={(e) => {
+                          e.currentTarget.onerror = null;
+                          e.currentTarget.src = img('car1.jpg');
+                        }}
+                      />
+                    ) : (
+                      <div style={{ width: '100%', height: '100%', background: '#eee', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 24 }}>
+                        📷
+                      </div>
+                    )}
+                  </div>
+                  <div className="veh-mini__body">
+                    <h3>{vehicleName}</h3>
+                    <p>
+                      {vehicleState} <span>•</span> {vehiclePlate}
+                    </p>
+                    <small>Status: {vehicleData?.listingStatus ? vehicleData.listingStatus.toUpperCase() : 'ACTIVE'}</small>
+                  </div>
+                </div>
+                <nav className="veh-nav">
+                  {NAV.map(([k, l]) => (
+                    <Link key={k} to={to(k)} className={section === k ? 'is-active' : ''}>
+                      {l}
+                    </Link>
+                  ))}
+                </nav>
+              </aside>
+              <section className="veh-edit__main">{body}</section>
             </div>
-            <nav className="veh-nav">
-              {NAV.map(([k, l]) => (
-                <Link key={k} to={to(k)} className={section === k ? 'is-active' : ''}>
-                  {l}
-                </Link>
-              ))}
-            </nav>
-          </aside>
-          <section className="veh-edit__main">{body}</section>
-        </div>
+          </>
+        )}
       </div>
       {customLoc && <CustomLocationModal onClose={() => setCustomLoc(false)} />}
       {file && (

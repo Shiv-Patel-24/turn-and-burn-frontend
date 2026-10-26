@@ -44,6 +44,7 @@ export function SignUpModal({ onClose, go }) {
   const [password, setPassword] = useState('');
   const [agree, setAgree] = useState(false);
   const [promo, setPromo] = useState(false);
+  const [referredByCode, setReferredByCode] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
@@ -57,21 +58,27 @@ export function SignUpModal({ onClose, go }) {
     setLoading(true);
 
     try {
+      const payload = {
+        firstName: firstName.trim(),
+        lastName: lastName.trim(),
+        email: email.trim(),
+        phoneCountryCode,
+        phoneNumber: phoneNumber.trim(),
+        password,
+        promotionsOptIn: promo,
+      };
+      if (referredByCode.trim()) {
+        payload.referredByCode = referredByCode.trim();
+      }
+
       const res = await apiRequest('/auth/register', {
         method: 'POST',
-        body: {
-          firstName: firstName.trim(),
-          lastName: lastName.trim(),
-          email: email.trim(),
-          phoneCountryCode,
-          phoneNumber: phoneNumber.trim(),
-          password,
-          promotionsOptIn: promo,
-        },
+        body: payload,
       });
 
       if (res?.data?.accessToken) {
         setAccessToken(res.data.accessToken);
+        if (res.data.refreshToken) setRefreshToken(res.data.refreshToken);
         setCurrentUser(res.data.user);
       }
       onClose();
@@ -132,6 +139,13 @@ export function SignUpModal({ onClose, go }) {
           <Password
             value={password}
             onChange={(e) => setPassword(e.target.value)}
+          />
+        </Field>
+        <Field label="Referral code (Optional)">
+          <Input
+            placeholder="e.g. JOHN5678"
+            value={referredByCode}
+            onChange={(e) => setReferredByCode(e.target.value.toUpperCase())}
           />
         </Field>
         <Checkbox checked={agree} onChange={setAgree}>
@@ -236,10 +250,38 @@ export function LoginModal({ onClose, go }) {
           </button>
         </p>
         <p className="auth__or">or</p>
-        <button type="button" className="btn-social">
+        <button
+          type="button"
+          className="btn-social"
+          onClick={async () => {
+            setError('');
+            try {
+              await apiRequest('/auth/social-login', {
+                method: 'POST',
+                body: { provider: 'apple', idToken: 'MOCK_APPLE_ID_TOKEN' },
+              });
+            } catch (err) {
+              setError(err.message || 'Apple login is not configured on the server (APPLE_CLIENT_ID)');
+            }
+          }}
+        >
           <FaApple size={30} /> Continue with Apple
         </button>
-        <button type="button" className="btn-social">
+        <button
+          type="button"
+          className="btn-social"
+          onClick={async () => {
+            setError('');
+            try {
+              await apiRequest('/auth/social-login', {
+                method: 'POST',
+                body: { provider: 'google', idToken: 'MOCK_GOOGLE_ID_TOKEN' },
+              });
+            } catch (err) {
+              setError(err.message || 'Google login is not configured on the server (GOOGLE_CLIENT_ID)');
+            }
+          }}
+        >
           <FcGoogle size={30} /> Continue with Google
         </button>
       </form>

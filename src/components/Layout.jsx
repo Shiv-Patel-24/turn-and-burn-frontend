@@ -1,11 +1,12 @@
+import { useState, useEffect } from 'react';
 import { FaApple, FaGooglePlay, FaInstagram, FaDribbble, FaTwitter, FaYoutube } from 'react-icons/fa';
-import { FiHome, FiHeart, FiMessageSquare, FiUser, FiMapPin, FiGift, FiHeadphones, FiLogOut, FiCalendar, FiMoreVertical } from 'react-icons/fi';
+import { FiHome, FiHeart, FiMessageSquare, FiUser, FiMapPin, FiGift, FiHeadphones, FiLogOut, FiCalendar, FiMoreVertical, FiBell } from 'react-icons/fi';
 import { IoCarSportOutline, IoSwapHorizontal, IoClose } from 'react-icons/io5';
 import { TbFileText, TbReceipt, TbRoad, TbChartBar } from 'react-icons/tb';
 import { Link, navigate } from '../router';
 import { img } from '../data';
 import { useUI, Modal } from '../ui';
-import { clearSession, getRefreshToken, apiRequest } from '../lib/api';
+import { clearSession, getRefreshToken, apiRequest, getCurrentUser, setCurrentUser } from '../lib/api';
 
 /* role: 'guest' | 'user' | 'host' */
 export const base = (role) => (role === 'user' ? '/app' : role === 'host' ? '/host' : '');
@@ -20,6 +21,34 @@ export function Logo({ role = 'guest' }) {
 
 export function Header({ role = 'guest' }) {
   const { open } = useUI();
+  const [unread, setUnread] = useState(0);
+  const [notifOpen, setNotifOpen] = useState(false);
+  const [notifications, setNotifications] = useState([]);
+
+  useEffect(() => {
+    if (role === 'guest') return;
+    let active = true;
+    apiRequest('/notifications?limit=10')
+      .then((res) => {
+        if (!active) return;
+        const count = res?.data?.unreadCount || 0;
+        setUnread(count);
+        setNotifications(res?.data?.notifications || []);
+      })
+      .catch(() => {});
+    return () => {
+      active = false;
+    };
+  }, [role]);
+
+  const handleMarkAllRead = async () => {
+    setUnread(0);
+    try {
+      await apiRequest('/notifications/read-all', { method: 'PATCH' });
+      setNotifications((prev) => prev.map((n) => ({ ...n, isRead: true })));
+    } catch {}
+  };
+
   return (
     <header className="header">
       <div className="container header__inner">
@@ -30,6 +59,20 @@ export function Header({ role = 'guest' }) {
           </button>
         ) : (
           <div className="header__right">
+            <button
+              type="button"
+              className="btn-switch"
+              style={{ position: 'relative', display: 'inline-flex', alignItems: 'center', gap: '6px' }}
+              onClick={() => setNotifOpen(true)}
+              aria-label="Notifications"
+            >
+              <FiBell size={18} />
+              {unread > 0 && (
+                <span style={{ backgroundColor: '#ef4444', color: '#fff', borderRadius: '999px', fontSize: '11px', fontWeight: 'bold', padding: '1px 6px' }}>
+                  {unread}
+                </span>
+              )}
+            </button>
             <button type="button" className="btn-switch" onClick={() => navigate(role === 'user' ? '/host' : '/app')}>
               {role === 'user' ? 'Switch to host' : 'Switch to guest'}
             </button>
@@ -46,6 +89,46 @@ export function Header({ role = 'guest' }) {
           </div>
         )}
       </div>
+
+      {notifOpen && (
+        <Modal onClose={() => setNotifOpen(false)} width={480} className="drawer" align="right">
+          <div className="drawer__head">
+            <h2>Notifications</h2>
+            <button type="button" className="icon-btn" aria-label="Close" onClick={() => setNotifOpen(false)}>
+              <IoClose size={26} />
+            </button>
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'flex-end', padding: '0 20px 10px' }}>
+            <button type="button" style={{ background: 'none', border: 'none', color: '#3b82f6', fontSize: '13px', cursor: 'pointer' }} onClick={handleMarkAllRead}>
+              Mark all as read
+            </button>
+          </div>
+          <div style={{ maxHeight: '75vh', overflowY: 'auto', padding: '0 20px 20px' }}>
+            {notifications.length === 0 ? (
+              <p style={{ color: '#888', textAlign: 'center', margin: '40px 0' }}>No notifications</p>
+            ) : (
+              notifications.map((n) => (
+                <div
+                  key={n._id}
+                  style={{
+                    backgroundColor: n.isRead ? '#f9fafb' : '#eff6ff',
+                    border: '1px solid #e5e7eb',
+                    borderRadius: '12px',
+                    padding: '14px',
+                    marginBottom: '10px',
+                  }}
+                >
+                  <b style={{ display: 'block', fontSize: '14px', marginBottom: '4px', color: '#111827' }}>{n.title}</b>
+                  <p style={{ margin: 0, fontSize: '13px', color: '#4b5563', lineHeight: 1.4 }}>{n.body}</p>
+                  <small style={{ display: 'block', marginTop: '6px', fontSize: '11px', color: '#9ca3af' }}>
+                    {new Date(n.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} · {new Date(n.createdAt).toLocaleDateString()}
+                  </small>
+                </div>
+              ))
+            )}
+          </div>
+        </Modal>
+      )}
     </header>
   );
 }
@@ -133,34 +216,73 @@ export default function Layout({ role = 'guest', children, footer = true, classN
 
 function MenuPanel({ items, onClose }) {
   const { open } = useUI();
+  const user = getCurrentUser() || {};
+  const name = user.firstName ? `${user.firstName} ${user.lastName || ''}`.trim() : 'Kaylynn Bergson';
+
+  const handleItemClick = async ({ to, action }) => {
+    if (action === 'logout') {
+      open('logout');
+      return;
+    }
+    if (action === 'switch-role-host') {
+      try {
+        await apiRequest('/users/me/switch-role', {
+          method: 'POST',
+          body: { role: 'host' },
+        });
+        const updated = { ...user, activeRole: 'host' };
+        setCurrentUser(updated);
+      } catch (err) {
+        console.warn('Could not switch role on server:', err.message);
+      }
+      onClose();
+      navigate('/host');
+      return;
+    }
+    if (action === 'switch-role-guest') {
+      try {
+        await apiRequest('/users/me/switch-role', {
+          method: 'POST',
+          body: { role: 'guest' },
+        });
+        const updated = { ...user, activeRole: 'guest' };
+        setCurrentUser(updated);
+      } catch (err) {
+        console.warn('Could not switch role on server:', err.message);
+      }
+      onClose();
+      navigate('/app');
+      return;
+    }
+    onClose();
+    if (to) navigate(to);
+  };
+
   return (
     <div className="side-menu">
       <div className="side-menu__head">
-        <img src={img('avatar-menu.jpg')} alt="" />
-        <strong>Kaylynn Bergson</strong>
+        <img src={user.profilePhotoUrl || img('avatar-menu.jpg')} alt={name} />
+        <strong>{name}</strong>
         <button type="button" className="icon-btn" aria-label="Close menu" onClick={onClose}>
           <IoClose size={26} />
         </button>
       </div>
       {items.map((group, gi) => (
         <div className="side-menu__group" key={gi}>
-          {group.map(({ icon: I, label, to, action }) => (
-            <button
-              key={label}
-              type="button"
-              className="side-menu__item"
-              onClick={() => {
-                if (action === 'logout') open('logout');
-                else {
-                  onClose();
-                  navigate(to);
-                }
-              }}
-            >
-              <I size={30} strokeWidth={1.5} />
-              {label}
-            </button>
-          ))}
+          {group.map((item) => {
+            const { icon: I, label } = item;
+            return (
+              <button
+                key={label}
+                type="button"
+                className="side-menu__item"
+                onClick={() => handleItemClick(item)}
+              >
+                <I size={30} strokeWidth={1.5} />
+                {label}
+              </button>
+            );
+          })}
         </div>
       ))}
     </div>
@@ -177,7 +299,7 @@ export function UserMenu({ onClose }) {
     ],
     [
       { icon: FiUser, label: 'My Profile', to: '/app/profile' },
-      { icon: IoSwapHorizontal, label: 'Switch to Host', to: '/host/calendar' },
+      { icon: IoSwapHorizontal, label: 'Switch to Host', action: 'switch-role-host' },
       { icon: FiMapPin, label: 'Saved Locations', to: '/app/saved-locations' },
       { icon: TbReceipt, label: 'Payment History', to: '/app/payments' },
     ],
@@ -200,6 +322,7 @@ export function HostMenu({ onClose }) {
       { icon: IoCarSportOutline, label: 'Vehicles', to: '/host/vehicles' },
       { icon: TbChartBar, label: 'Analytics', to: '/host/analytics' },
       { icon: FiUser, label: 'My Profile', to: '/host/profile' },
+      { icon: IoSwapHorizontal, label: 'Switch to Guest', action: 'switch-role-guest' },
       { icon: FiMoreVertical, label: 'More', to: '/host/more' },
     ],
     [{ icon: FiLogOut, label: 'Log Out', action: 'logout' }],

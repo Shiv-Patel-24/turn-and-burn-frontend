@@ -2,3 +2,4 @@ node_modules
 dist
 .env.example
 .env.local
+auth_endpoints_audit.txt

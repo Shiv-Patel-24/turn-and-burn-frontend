@@ -149,7 +149,9 @@ export function UploadTile({ onClick }) {
 }
 
 export function CarSections({ values }) {
-  const [trans, setTrans] = useState(values ? 'Automatic' : '');
+  const isObj = typeof values === 'object' && values !== null;
+  const initialTrans = isObj ? (values.transmission || 'Automatic') : (values ? 'Automatic' : '');
+  const [trans, setTrans] = useState(initialTrans);
   const [salvage, setSalvage] = useState(!!values);
   const [tax, setTax] = useState(values ? 'Yes' : '');
   return (
@@ -157,27 +159,27 @@ export function CarSections({ values }) {
       <h2 className="step__h">Make and model</h2>
       <p className="step__p">is simply dummy text of the printing and typesetting industry.</p>
       <Field label="Year">
-        <Input placeholder="e.g., 2020" defaultValue={values ? '2020' : ''} />
+        <Input placeholder="e.g., 2020" defaultValue={isObj ? values.year : (values ? '2020' : '')} />
       </Field>
       <Field label="Make">
-        <Input placeholder="e.g., BMW" defaultValue={values ? 'BMW' : ''} />
+        <Input placeholder="e.g., BMW" defaultValue={isObj ? values.make : (values ? 'BMW' : '')} />
       </Field>
       <Field label="Model">
-        <Input placeholder="e.g., 4 Series" defaultValue={values ? '4 Series' : ''} />
+        <Input placeholder="e.g., 4 Series" defaultValue={isObj ? values.model : (values ? '4 Series' : '')} />
       </Field>
       <h2 className="step__h">Trim and style</h2>
       <p className="step__p">is simply dummy text of the printing and typesetting industry.</p>
       <Field label="Trim">
-        <Input placeholder="Enter your vehicle Trim" defaultValue={values ? 'Vehicle Trim' : ''} />
+        <Input placeholder="Enter your vehicle Trim" defaultValue={isObj ? (values.trim || 'Standard') : (values ? 'Vehicle Trim' : '')} />
       </Field>
       <Field label="Style">
-        <Input placeholder="e.g., Coupe" defaultValue={values ? 'Coupe' : ''} />
+        <Input placeholder="e.g., Coupe" defaultValue={isObj ? values.style : (values ? 'Coupe' : '')} />
       </Field>
       <h2 className="step__h">Odometer and transmission</h2>
       <p className="step__p">is simply dummy text of the printing and typesetting industry.</p>
       <p className="step__label">Odometer</p>
       <Field label="What is your car's odometer reading?">
-        <Input placeholder="Enter your odometer reading e.g., 10-20k miles" defaultValue={values ? '10-20k miles' : ''} />
+        <Input placeholder="Enter your odometer reading e.g., 10-20k miles" defaultValue={isObj ? (values.odometer ? `${values.odometer} miles` : '35,000 miles') : (values ? '10-20k miles' : '')} />
       </Field>
       <p className="step__label">Transmission</p>
       <div className="stack-sm">
@@ -581,17 +583,23 @@ export function AvailabilityFields({ value = {}, onChange }) {
   );
 }
 
-export function DetailsFields({ features, setFeatures, filled }) {
+export function DetailsFields({ features, setFeatures, filled, defaultPlate, defaultState, defaultDesc }) {
   const toggle = (f) => setFeatures(features.includes(f) ? features.filter((x) => x !== f) : [...features, f]);
+  const stateVal = defaultState || (filled ? 'Taxus' : '');
+  const stateOptions = ['Taxus', 'New York', 'California', 'NC'];
   return (
     <>
       <p className="step__label">About car</p>
       <div className="grid-2">
         <Field label="License plate number" className="field--normal">
-          <Input placeholder="Plate number" defaultValue={filled ? 'TX58U1332' : ''} />
+          <Input placeholder="Plate number" defaultValue={defaultPlate || (filled ? 'TX58U1332' : '')} />
         </Field>
         <Field label="State" className="field--normal">
-          <Select placeholder={filled ? undefined : 'State / Province'} value={filled ? 'Taxus' : ''} options={['Taxus', 'New York', 'California']} />
+          <Select
+            placeholder={stateVal ? undefined : 'State / Province'}
+            value={stateVal}
+            options={stateOptions.includes(stateVal) ? stateOptions : [...stateOptions, stateVal]}
+          />
         </Field>
       </div>
       <p className="step__label">Car feature</p>
@@ -607,7 +615,7 @@ export function DetailsFields({ features, setFeatures, filled }) {
         className="input textarea"
         rows={5}
         placeholder="Please describe your car details..."
-        defaultValue={filled ? LOREM_LONG : ''}
+        defaultValue={defaultDesc || (filled ? LOREM_LONG : '')}
       />
     </>
   );
