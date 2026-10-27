@@ -43,7 +43,8 @@ function AboutRowItem({ imgSrc, title, fullContent, isRev }) {
 }
 
 export function About({ role }) {
-  const [sections, setSections] = useState([]);
+  const [sections, setSections] = useState(null);
+  const [loading, setLoading] = useState(true);
   const [stats, setStats] = useState(null);
   const defaultRows = [img('about-1.jpg'), img('about-2.jpg'), img('about-3.jpg'), img('about-4.jpg')];
 
@@ -53,11 +54,15 @@ export function About({ role }) {
       .then((res) => {
         if (!active) return;
         const list = res?.data?.sections || [];
-        if (Array.isArray(list) && list.length > 0) {
-          setSections(list);
-        }
+        setSections(list);
       })
-      .catch(() => {});
+      .catch(() => {
+        if (!active) return;
+        setSections([]);
+      })
+      .finally(() => {
+        if (active) setLoading(false);
+      });
 
     apiRequest('/content/stats')
       .then((res) => {
@@ -74,7 +79,7 @@ export function About({ role }) {
   }, []);
 
   // Filter text blocks vs image blocks from backend
-  const textSections = sections.filter((s) => s.blockType === 'text');
+  const textSections = (sections || []).filter((s) => s.blockType === 'text');
   const heroSection = textSections[0];
   const storySections = textSections.length > 1 ? textSections.slice(1) : [];
 
@@ -86,8 +91,7 @@ export function About({ role }) {
           <div className="about-hero__card">
             <h1>About Us</h1>
             <p>
-              {heroSection?.content ||
-                "Turn & Burn Car Rental was founded in 2019 with a simple mission: make premium car rental accessible, fast, and stress-free for every driver in New York."}
+              {loading ? 'Loading...' : heroSection?.content || ''}
             </p>
           </div>
         </div>
@@ -96,25 +100,31 @@ export function About({ role }) {
       <section className="container about-intro">
         <div className="section-head">
           <h2>About Us</h2>
-          <p className="small">
-            {sections[1]?.content || "We believe renting a car should feel like owning one. Every vehicle in our fleet is inspected and fully insured."}
-          </p>
+          {sections && sections[1]?.content && (
+            <p className="small">{sections[1].content}</p>
+          )}
         </div>
-        {(storySections.length > 0 ? storySections : [1, 2, 3, 4]).map((item, i) => {
-          const imgSrc = (typeof item === 'object' && item.imageUrl) || defaultRows[i % defaultRows.length];
-          const title = (typeof item === 'object' && item.title) || '';
-          const fullContent = (typeof item === 'object' && item.content) || ABOUT_P;
-          
-          return (
-            <AboutRowItem
-              key={item._id || i}
-              imgSrc={imgSrc}
-              title={title}
-              fullContent={fullContent}
-              isRev={Boolean(i % 2)}
-            />
-          );
-        })}
+        {loading ? (
+          <div style={{ textAlign: 'center', padding: '40px 0', color: '#6b7280' }}>
+            <p>Loading about details...</p>
+          </div>
+        ) : storySections.length > 0 ? (
+          storySections.map((item, i) => {
+            const imgSrc = (typeof item === 'object' && item.imageUrl) || defaultRows[i % defaultRows.length];
+            const title = (typeof item === 'object' && item.title) || '';
+            const fullContent = (typeof item === 'object' && item.content) || '';
+
+            return (
+              <AboutRowItem
+                key={item._id || i}
+                imgSrc={imgSrc}
+                title={title}
+                fullContent={fullContent}
+                isRev={Boolean(i % 2)}
+              />
+            );
+          })
+        ) : null}
       </section>
 
       <section className="services">
@@ -209,11 +219,12 @@ export function Contact({ role, faq = false }) {
   const [firstName, setFirstName] = useState('');
   const [lastName, setLastName] = useState('');
   const [email, setEmail] = useState('');
-  const [phone, setPhone] = useState('+1 555-123-4567');
+  const [phone, setPhone] = useState('');
   const [message, setMessage] = useState('');
   const [sent, setSent] = useState(false);
   const [ticketNum, setTicketNum] = useState('');
   const [loading, setLoading] = useState(false);
+  const [infoLoading, setInfoLoading] = useState(true);
   const [error, setError] = useState('');
   const [companyInfo, setCompanyInfo] = useState(null);
 
@@ -226,7 +237,10 @@ export function Contact({ role, faq = false }) {
           setCompanyInfo(res.data);
         }
       })
-      .catch(() => {});
+      .catch(() => {})
+      .finally(() => {
+        if (active) setInfoLoading(false);
+      });
     return () => {
       active = false;
     };
@@ -248,12 +262,12 @@ export function Contact({ role, faq = false }) {
       const res = await apiRequest('/contact', {
         method: 'POST',
         body: {
-          name: `${firstName} ${lastName}`.trim() || 'John Doe',
-          email: email.trim() || 'john.doe@gmail.com',
+          name: `${firstName} ${lastName}`.trim() || 'Guest User',
+          email: email.trim(),
           phone: phone.trim(),
           category: subjectOptions[subject] || 'General Inquiry',
           subject: subjectOptions[subject] || 'General Inquiry',
-          message: message.trim() || 'Inquiry message',
+          message: message.trim(),
         },
       });
 
@@ -276,13 +290,16 @@ export function Contact({ role, faq = false }) {
           <p>Say something to start a live chat!</p>
           <ul>
             <li>
-              <FiPhoneCall size={22} /> {companyInfo?.supportPhone || companyInfo?.phone || '+1012 3456 789'}
+              <FiPhoneCall size={22} />{' '}
+              <span>{infoLoading ? 'Loading phone...' : (companyInfo?.supportPhone || companyInfo?.phone || 'Not available')}</span>
             </li>
             <li>
-              <FiMail size={22} /> {companyInfo?.supportEmail || companyInfo?.businessEmail || 'demo@gmail.com'}
+              <FiMail size={22} />{' '}
+              <span>{infoLoading ? 'Loading email...' : (companyInfo?.supportEmail || companyInfo?.businessEmail || 'Not available')}</span>
             </li>
             <li>
-              <FiMapPin size={22} /> {companyInfo?.address || '132 Dartmouth Street Boston, Massachusetts 02156 United States'}
+              <FiMapPin size={22} />{' '}
+              <span>{infoLoading ? 'Loading address...' : (companyInfo?.address || 'Not available')}</span>
             </li>
           </ul>
           <span className="contact__circle contact__circle--a" />
@@ -356,7 +373,8 @@ export function Contact({ role, faq = false }) {
 }
 
 function FaqAccordion({ openFaq, setOpenFaq }) {
-  const [faqList, setFaqList] = useState([]);
+  const [faqList, setFaqList] = useState(null);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     let active = true;
@@ -364,21 +382,39 @@ function FaqAccordion({ openFaq, setOpenFaq }) {
       .then((res) => {
         if (!active) return;
         const sections = res?.data?.sections || [];
-        if (Array.isArray(sections) && sections.length > 0) {
-          setFaqList(sections.map((s) => [s.title, s.content]));
-        }
+        setFaqList(sections.map((s) => [s.title, s.content]));
       })
-      .catch(() => {});
+      .catch(() => {
+        if (!active) return;
+        setFaqList([]);
+      })
+      .finally(() => {
+        if (active) setLoading(false);
+      });
     return () => {
       active = false;
     };
   }, []);
 
-  const displayFaqs = faqList.length > 0 ? faqList : faqs;
+  if (loading) {
+    return (
+      <div style={{ textAlign: 'center', padding: '30px 0', color: '#6b7280' }}>
+        <p>Loading FAQs...</p>
+      </div>
+    );
+  }
+
+  if (!faqList || faqList.length === 0) {
+    return (
+      <div style={{ textAlign: 'center', padding: '30px 0', color: '#6b7280' }}>
+        <p>No FAQs available right now.</p>
+      </div>
+    );
+  }
 
   return (
     <>
-      {displayFaqs.map(([q, a], i) => (
+      {faqList.map(([q, a], i) => (
         <div className={`faq__item ${openFaq === i ? 'is-open' : ''}`} key={q}>
           <button type="button" onClick={() => setOpenFaq(openFaq === i ? -1 : i)}>
             <span>{q}</span>
@@ -404,7 +440,8 @@ export const termsSections = [
 ];
 
 export function TermsList() {
-  const [terms, setTerms] = useState([]);
+  const [terms, setTerms] = useState(null);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     let active = true;
@@ -412,38 +449,40 @@ export function TermsList() {
       .then((res) => {
         if (!active) return;
         const sections = res?.data?.sections || [];
-        if (Array.isArray(sections) && sections.length > 0) {
-          setTerms(sections);
-        }
+        setTerms(sections);
       })
-      .catch(() => {});
+      .catch(() => {
+        if (!active) return;
+        setTerms([]);
+      })
+      .finally(() => {
+        if (active) setLoading(false);
+      });
     return () => {
       active = false;
     };
   }, []);
 
-  if (terms.length > 0) {
-    return terms.map((sec) => (
-      <div className="terms__card" key={sec._id}>
-        <h2>{sec.title}</h2>
-        <p>{sec.content}</p>
+  if (loading) {
+    return (
+      <div style={{ padding: '40px 0', textAlign: 'center', color: '#6b7280' }}>
+        <p>Loading terms and conditions...</p>
       </div>
-    ));
+    );
   }
 
-  return termsSections.map(([title, paras, list, plain]) => (
-    <div className="terms__card" key={title}>
-      <h2>{title}</h2>
-      {paras.map((p) => (
-        <p key={p}>{p}</p>
-      ))}
-      {list && (
-        <ul className={plain ? 'plain' : ''}>
-          {list.map((l) => (
-            <li key={l}>{l}</li>
-          ))}
-        </ul>
-      )}
+  if (!terms || terms.length === 0) {
+    return (
+      <div style={{ padding: '40px 0', textAlign: 'center', color: '#6b7280' }}>
+        <p>No terms and conditions found.</p>
+      </div>
+    );
+  }
+
+  return terms.map((sec, idx) => (
+    <div className="terms__card" key={sec._id || idx}>
+      <h2>{sec.title}</h2>
+      <p>{sec.content}</p>
     </div>
   ));
 }
@@ -454,7 +493,6 @@ export function Terms({ role, title = 'Terms & Conditions' }) {
       <section className="container terms">
         <div className="section-head">
           <h1>{title}</h1>
-          <p className="small">{LOREM}</p>
         </div>
         <TermsList />
       </section>
