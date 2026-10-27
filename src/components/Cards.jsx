@@ -81,7 +81,7 @@ export function CarCard({ car, onRent, liked: likedInit = false, size = 'lg', on
 }
 
 /* Horizontal scroller with prev/next (Home "Newer car rental in ..." rows) */
-export function CarRow({ title, subtitle = 'Average daily prices for a 3-day trip', items, onRent }) {
+export function CarRow({ title, subtitle = 'Average daily prices for a 3-day trip', items, onRent, onToggleFavorite }) {
   const ref = useRef(null);
   const scroll = (dir) => ref.current && ref.current.scrollBy({ left: dir * 449, behavior: 'smooth' });
   return (
@@ -102,7 +102,7 @@ export function CarRow({ title, subtitle = 'Average daily prices for a 3-day tri
       </div>
       <div className="car-row__track" ref={ref}>
         {items.map((car, i) => (
-          <CarCard key={i} car={car} onRent={() => onRent?.(car)} />
+          <CarCard key={car.id || i} car={car} onRent={() => onRent?.(car)} onToggleFavorite={onToggleFavorite} />
         ))}
       </div>
     </section>

@@ -39,6 +39,23 @@ export default function Home({ role = 'guest' }) {
     return isUser ? navigate(`/app/car/${id}`) : navigate(`/car/${id}`);
   };
 
+  const handleToggleFavorite = async (car, isLiked) => {
+    if (!isUser) {
+      open('signup');
+      return;
+    }
+    if (!car?.id) return;
+    try {
+      if (isLiked) {
+        await apiRequest(`/vehicles/${car.id}/favorite`, { method: 'POST' });
+      } else {
+        await apiRequest(`/vehicles/${car.id}/favorite`, { method: 'DELETE' });
+      }
+    } catch (err) {
+      console.warn('Could not update favorite status:', err.message);
+    }
+  };
+
   useEffect(() => {
     let active = true;
     setLoading(true);
@@ -172,7 +189,12 @@ export default function Home({ role = 'guest' }) {
                   </div>
                 ))
               : gridCars.map((c, i) => (
-                  <CarCard key={`${tab}-${i}`} car={c} onRent={() => rent(c)} />
+                  <CarCard
+                    key={`${tab}-${i}`}
+                    car={c}
+                    onRent={() => rent(c)}
+                    onToggleFavorite={handleToggleFavorite}
+                  />
                 ))}
           </div>
           <div className="center">
@@ -185,7 +207,13 @@ export default function Home({ role = 'guest' }) {
 
       <div className="rows">
         {rentalSections.map((t) => (
-          <CarRow key={t} title={t} items={rowCars} onRent={rent} />
+          <CarRow
+            key={t}
+            title={t}
+            items={rowCars}
+            onRent={rent}
+            onToggleFavorite={handleToggleFavorite}
+          />
         ))}
       </div>
     </Layout>
