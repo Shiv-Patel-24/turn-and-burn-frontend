@@ -4,7 +4,7 @@ import { FaStar, FaHeart } from 'react-icons/fa';
 import { TbGauge, TbPalette, TbGasStation } from 'react-icons/tb';
 import Layout from '../components/Layout';
 import { CarCard } from '../components/Cards';
-import { img, carAt } from '../data';
+import { img, carAt, cars } from '../data';
 import { navigate, useRoute } from '../router';
 import { useUI } from '../ui';
 import { apiRequest } from '../lib/api';
@@ -44,6 +44,7 @@ export default function CarDetail({ role = 'guest' }) {
   const [idx, setIdx] = useState(0);
   const [fav, setFav] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [hostListingsCount, setHostListingsCount] = useState(null);
   const isUser = role === 'user';
   const guard = (fn) => () => (isUser ? fn() : open('signup'));
 
@@ -55,18 +56,48 @@ export default function CarDetail({ role = 'guest' }) {
     apiRequest(`/vehicles/${carId}`)
       .then((res) => {
         if (!active) return;
-        setVehicle(res?.data || null);
-        if (res?.data?.isFavorite) setFav(true);
+        const v = res?.data || null;
+        setVehicle(v);
+        if (v?.isFavorite) setFav(true);
+
+        const hostId = v?.host?._id || (typeof v?.host === 'string' ? v?.host : null);
+        if (hostId) {
+          apiRequest(`/vehicles/host/${hostId}/listings`)
+            .then((hRes) => {
+              if (!active) return;
+              const count = Array.isArray(hRes?.data) ? hRes.data.length : (hRes?.data?.length || 1);
+              setHostListingsCount(count);
+            })
+            .catch(() => {});
+        }
       })
       .catch((err) => {
         console.warn('Could not load vehicle from API:', err.message);
-        // Fallback: search vehicles array
+        // Fallback: check local cars catalogue first (e.g., id 3 = Audi A8 L)
+        const localMatch = cars.find((c) => String(c.id) === String(carId));
+        if (localMatch && active) {
+          setVehicle(localMatch);
+        }
+
+        // Also search vehicles array from API if possible
         apiRequest('/vehicles/search')
           .then((res) => {
             if (!active) return;
             const list = res?.data?.results || res?.data || [];
             const found = list.find((v) => String(v._id) === String(carId) || String(v.id) === String(carId));
-            if (found) setVehicle(found);
+            if (found) {
+              setVehicle(found);
+              const hostId = found?.host?._id || (typeof found?.host === 'string' ? found?.host : null);
+              if (hostId) {
+                apiRequest(`/vehicles/host/${hostId}/listings`)
+                  .then((hRes) => {
+                    if (!active) return;
+                    const count = Array.isArray(hRes?.data) ? hRes.data.length : (hRes?.data?.length || 1);
+                    setHostListingsCount(count);
+                  })
+                  .catch(() => {});
+              }
+            }
           })
           .catch(() => {});
       })
@@ -130,6 +161,28 @@ export default function CarDetail({ role = 'guest' }) {
     [TbPalette, 'Interior', vehicle.interior || 'Black Leather'],
     [FiSettings, 'VIN', vehicle.vin ? `${vehicle.vin.slice(0, 8)}******` : '4T1B11HK1KU******'],
   ] : defaultSpecs;
+
+  // Dynamic host/seller details
+  const host = (vehicle?.host && typeof vehicle.host === 'object') ? vehicle.host : null;
+  const hostName = host
+    ? `${host.firstName || ''} ${host.lastName || ''}`.trim() || 'Verified Host'
+    : 'Verified Host';
+  const hostInitials = host
+    ? `${(host.firstName?.[0] || 'V')}${(host.lastName?.[0] || 'H')}`.toUpperCase()
+    : 'VH';
+  const hostPhoto = host?.profilePhotoUrl || null;
+  const hostMemberSince = host?.createdAt
+    ? `Member since ${new Date(host.createdAt).toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}`
+    : 'Member since March 2024';
+  const hostRating = reviewSummary?.averageRating
+    ? Number(reviewSummary.averageRating).toFixed(1)
+    : (vehicle?.rating ? Number(vehicle.rating).toFixed(1) : '4.9');
+  const hostReviewsCount = reviewSummary?.totalReviews !== undefined
+    ? reviewSummary.totalReviews
+    : (vehicleReviews?.length || 23);
+  const hostListingsText = hostListingsCount !== null
+    ? `${hostListingsCount} active listing${hostListingsCount === 1 ? '' : 's'}`
+    : '3 active listings';
 
   return (
     <Layout role={role}>
@@ -236,7 +289,7 @@ export default function CarDetail({ role = 'guest' }) {
           <div className="card">
             <h2 className="card__title">Seller's Notes</h2>
             <p className="detail__notes">
-              This 2019 Toyota Camry is in excellent condition with only 50,000 miles. It has been regularly maintained and comes with a full service history. The car has never been in an accident and has a clean title. Features include a backup camera, blind spot monitoring, adaptive cruise control, and much more. The interior is pristine with no signs of wear. This is a one-owner vehicle that has been garage-kept. Perfect for someone looking for a reliable, fuel-efficient sedan with modern safety features.
+              {vehicle?.description || `This ${carName} is in excellent condition with only ${vehicle?.odometer ? `${vehicle.odometer.toLocaleString()} miles` : 'low mileage'}. It has been regularly maintained and comes with a full service history. The car has never been in an accident and has a clean title. Features include backup camera, Bluetooth connectivity, adaptive cruise control, and much more. The interior is pristine with no signs of wear. Perfect for someone looking for a reliable, fuel-efficient vehicle.`}
             </p>
           </div>
 
@@ -304,25 +357,34 @@ export default function CarDetail({ role = 'guest' }) {
         <aside className="detail__side">
           <div className="card seller">
             <div className="seller__head">
-              <span className="seller__ini">JD</span>
+              {hostPhoto ? (
+                <img
+                  src={hostPhoto}
+                  alt={hostName}
+                  className="seller__ini"
+                  style={{ objectFit: 'cover' }}
+                />
+              ) : (
+                <span className="seller__ini">{hostInitials}</span>
+              )}
               <div>
-                <b>John Doe</b>
-                <small>Private Seller</small>
+                <b>{hostName}</b>
+                <small>Verified Host</small>
                 <span className="seller__rating">
-                  <FaStar color="#FDB022" /> <b>4.9</b>
-                  <small>(23 reviews)</small>
+                  <FaStar color="#FDB022" /> <b>{hostRating}</b>
+                  <small>({hostReviewsCount} reviews)</small>
                 </span>
               </div>
             </div>
             <ul className="seller__facts">
               <li>
-                <FiMapPin /> Member since March 2024
+                <FiMapPin /> {hostMemberSince}
               </li>
               <li>
                 <FiClock /> Usually responds in 2 hours
               </li>
               <li>
-                <FiShield /> Verified seller
+                <FiShield /> Verified host
               </li>
             </ul>
             <button type="button" className="btn btn-primary btn-block" onClick={guard(() => navigate('/app/inbox'))}>
@@ -334,8 +396,8 @@ export default function CarDetail({ role = 'guest' }) {
             <div className="seller__listings">
               <small>Seller's other listings</small>
               <div>
-                <span>3 active listings</span>
-                <a href="#/" onClick={(e) => e.preventDefault()}>
+                <span>{hostListingsText}</span>
+                <a href="#/cars" onClick={(e) => { e.preventDefault(); navigate('/cars'); }}>
                   View all →
                 </a>
               </div>

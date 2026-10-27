@@ -32,6 +32,7 @@ export default function Home({ role = 'guest' }) {
   const [body, setBody] = useState(-1);
   const [tab, setTab] = useState(collectionTabs[0]);
   const [apiVehicles, setApiVehicles] = useState([]);
+  const [loading, setLoading] = useState(true);
   const isUser = role === 'user';
   const rent = (c) => {
     const id = c?.id || '1';
@@ -40,13 +41,18 @@ export default function Home({ role = 'guest' }) {
 
   useEffect(() => {
     let active = true;
+    setLoading(true);
     apiRequest('/vehicles/search')
       .then((res) => {
         if (!active) return;
         const list = res?.data?.results || res?.data || [];
         if (list.length) setApiVehicles(list);
       })
-      .catch((err) => console.warn('Home vehicles fallback to mock:', err.message));
+      .catch((err) => console.warn('Home vehicles fallback to mock:', err.message))
+      .finally(() => {
+        if (active) setLoading(false);
+      });
+
     return () => {
       active = false;
     };
@@ -55,7 +61,7 @@ export default function Home({ role = 'guest' }) {
   const defaultMock = [0, 1, 2, 3, 4, 5, 0, 1, 2].map(carAt);
   const formattedVehicles = apiVehicles.length > 0
     ? apiVehicles.map((v, i) => formatVehicle(v, i))
-    : defaultMock;
+    : (loading ? [] : defaultMock);
 
   // Filter cars when user clicks "Popular Car", "Luxury Car", "Vintage Car", "Family Car", "Off-Road Car"
   const filterByTab = (cars, activeTab) => {
@@ -150,9 +156,24 @@ export default function Home({ role = 'guest' }) {
             ))}
           </div>
           <div className="car-grid">
-            {gridCars.map((c, i) => (
-              <CarCard key={`${tab}-${i}`} car={c} onRent={() => rent(c)} />
-            ))}
+            {loading
+              ? Array.from({ length: 6 }).map((_, idx) => (
+                  <div className="car-card-skeleton" key={idx}>
+                    <div className="skeleton-thumb skeleton-shimmer" />
+                    <div className="skeleton-title skeleton-shimmer" />
+                    <div className="skeleton-price skeleton-shimmer" />
+                    <div className="skeleton-specs">
+                      <div className="skeleton-spec-item skeleton-shimmer" />
+                      <div className="skeleton-spec-item skeleton-shimmer" />
+                      <div className="skeleton-spec-item skeleton-shimmer" />
+                      <div className="skeleton-spec-item skeleton-shimmer" />
+                    </div>
+                    <div className="skeleton-btn skeleton-shimmer" />
+                  </div>
+                ))
+              : gridCars.map((c, i) => (
+                  <CarCard key={`${tab}-${i}`} car={c} onRent={() => rent(c)} />
+                ))}
           </div>
           <div className="center">
             <button type="button" className="btn btn-primary btn-pill" onClick={() => (isUser ? navigate('/app/cars') : open('signup'))}>

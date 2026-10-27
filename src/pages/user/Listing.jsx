@@ -228,16 +228,21 @@ export function Favorites() {
     }
   };
 
-  const order = [3, 2, 1, 0, 2, 1, 4, 5, 3, 2, 1, 0, 3, 4, 5, 0];
+  const uniqueOrder = [0, 1, 2, 3, 4, 5];
   const displayFavs = favorites.length > 0
-    ? favorites.map((v, i) => formatVehicle(v, i))
-    : order.map((i) => carAt(i));
+    ? favorites.map((v, i) => formatVehicle(v?.vehicle || v, i))
+    : uniqueOrder.map((i) => carAt(i));
 
   return (
     <Layout role="user">
       <div className="container favorites">
         <SearchPanel withTime={false} ctaTo="/app/cars" />
         {loading && <p style={{ color: '#666', padding: '10px 0' }}>Loading your favorite vehicles...</p>}
+        {favorites.length === 0 && !loading && (
+          <p style={{ color: '#888', fontSize: '14px', marginBottom: '16px' }}>
+            Showing featured vehicles you can favorite. Click the heart icon on any vehicle to save it to your wishlist!
+          </p>
+        )}
         <div className="car-grid car-grid--4">
           {displayFavs.map((c, k) => (
             <CarCard
@@ -245,7 +250,7 @@ export function Favorites() {
               car={c}
               liked
               size="sm"
-              onRent={() => navigate(`/app/car/${c.id || 1}`)}
+              onRent={() => navigate(`/app/car/${c.id || (k + 1)}`)}
               onToggleFavorite={handleToggleFavorite}
             />
           ))}
