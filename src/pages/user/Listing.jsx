@@ -228,27 +228,30 @@ export function Favorites() {
     }
   };
 
-  const uniqueOrder = [0, 1, 2, 3, 4, 5];
-  const displayFavs = favorites.length > 0
-    ? favorites.map((v, i) => formatVehicle(v?.vehicle || v, i))
-    : uniqueOrder.map((i) => carAt(i));
+  const hasFavorites = favorites.length > 0;
+  const displayFavs = hasFavorites
+    ? favorites.map((v, i) => ({ ...formatVehicle(v?.vehicle || v, i), isFavorite: true }))
+    : [0, 1, 2, 3, 4, 5].map((i) => ({ ...carAt(i), isFavorite: false }));
 
   return (
     <Layout role="user">
       <div className="container favorites">
         <SearchPanel withTime={false} ctaTo="/app/cars" />
         {loading && <p style={{ color: '#666', padding: '10px 0' }}>Loading your favorite vehicles...</p>}
-        {favorites.length === 0 && !loading && (
-          <p style={{ color: '#888', fontSize: '14px', marginBottom: '16px' }}>
-            Showing featured vehicles you can favorite. Click the heart icon on any vehicle to save it to your wishlist!
-          </p>
+        {!hasFavorites && !loading && (
+          <div style={{ background: '#f8fafc', padding: '16px 20px', borderRadius: '12px', border: '1px solid #e2e8f0', marginBottom: '24px' }}>
+            <p style={{ color: '#334155', fontWeight: 600, fontSize: '15px', margin: 0 }}>You haven't added any favorite vehicles yet!</p>
+            <p style={{ color: '#64748b', fontSize: '14px', margin: '4px 0 0' }}>
+              Explore our fleet below and click the heart icon on any vehicle to save it to your wishlist.
+            </p>
+          </div>
         )}
         <div className="car-grid car-grid--4">
           {displayFavs.map((c, k) => (
             <CarCard
               key={c.id || k}
               car={c}
-              liked
+              liked={hasFavorites}
               size="sm"
               onRent={() => navigate(`/app/car/${c.id || (k + 1)}`)}
               onToggleFavorite={handleToggleFavorite}
