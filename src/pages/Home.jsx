@@ -40,17 +40,26 @@ export default function Home({ role = 'guest' }) {
   };
 
   const handleToggleFavorite = async (car, isLiked) => {
-    if (!isUser) {
+    const token = localStorage.getItem('turn_and_burn_access_token');
+    if (!token || !isUser) {
       open('signup');
       return;
     }
-    if (!car?.id) return;
+    const targetId = car?.id || car?._id;
+    if (!targetId) return;
     try {
       if (isLiked) {
-        await apiRequest(`/vehicles/${car.id}/favorite`, { method: 'POST' });
+        await apiRequest(`/vehicles/${targetId}/favorite`, { method: 'POST' });
       } else {
-        await apiRequest(`/vehicles/${car.id}/favorite`, { method: 'DELETE' });
+        await apiRequest(`/vehicles/${targetId}/favorite`, { method: 'DELETE' });
       }
+      setApiVehicles((prev) =>
+        prev.map((v) =>
+          String(v._id || v.id) === String(targetId)
+            ? { ...v, isFavorite: isLiked }
+            : v
+        )
+      );
     } catch (err) {
       console.warn('Could not update favorite status:', err.message);
     }
@@ -59,11 +68,24 @@ export default function Home({ role = 'guest' }) {
   useEffect(() => {
     let active = true;
     setLoading(true);
-    apiRequest('/vehicles/search')
-      .then((res) => {
+    Promise.all([
+      apiRequest('/vehicles/search'),
+      localStorage.getItem('turn_and_burn_access_token')
+        ? apiRequest('/vehicles/favorites/mine').catch(() => ({ data: [] }))
+        : Promise.resolve({ data: [] }),
+    ])
+      .then(([searchRes, favRes]) => {
         if (!active) return;
-        const list = res?.data?.results || res?.data || [];
-        if (list.length) setApiVehicles(list);
+        const list = searchRes?.data?.results || searchRes?.data || [];
+        const favList = Array.isArray(favRes?.data) ? favRes.data : [];
+        const favIdSet = new Set(
+          favList.map((f) => String(f?.vehicle?._id || f?.vehicle?.id || f?._id || f?.id))
+        );
+        const enriched = list.map((v) => ({
+          ...v,
+          isFavorite: favIdSet.has(String(v._id || v.id)) || Boolean(v.isFavorite),
+        }));
+        if (enriched.length) setApiVehicles(enriched);
       })
       .catch((err) => console.warn('Home vehicles fallback to mock:', err.message))
       .finally(() => {
@@ -75,10 +97,7 @@ export default function Home({ role = 'guest' }) {
     };
   }, []);
 
-  const defaultMock = [0, 1, 2, 3, 4, 5, 0, 1, 2].map(carAt);
-  const formattedVehicles = apiVehicles.length > 0
-    ? apiVehicles.map((v, i) => formatVehicle(v, i))
-    : (loading ? [] : defaultMock);
+  const formattedVehicles = apiVehicles.map((v, i) => formatVehicle(v, i));
 
   // Filter cars when user clicks "Popular Car", "Luxury Car", "Vintage Car", "Family Car", "Off-Road Car"
   const filterByTab = (cars, activeTab) => {
@@ -205,17 +224,19 @@ export default function Home({ role = 'guest' }) {
         </div>
       </section>
 
-      <div className="rows">
-        {rentalSections.map((t) => (
-          <CarRow
-            key={t}
-            title={t}
-            items={rowCars}
-            onRent={rent}
-            onToggleFavorite={handleToggleFavorite}
-          />
-        ))}
-      </div>
+      {rowCars.length > 0 && (
+        <div className="rows">
+          {rentalSections.map((t) => (
+            <CarRow
+              key={t}
+              title={t}
+              items={rowCars}
+              onRent={rent}
+              onToggleFavorite={handleToggleFavorite}
+            />
+          ))}
+        </div>
+      )}
     </Layout>
   );
 }

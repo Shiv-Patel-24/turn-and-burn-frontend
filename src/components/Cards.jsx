@@ -191,19 +191,55 @@ export function Testimonials() {
   );
 }
 
-export function Pagination({ dark }) {
-  const [page, setPage] = useState(1);
+export function Pagination({ dark, page = 1, totalPages = 1, onPageChange }) {
+  if (totalPages <= 1) return null;
+
+  const handlePage = (p) => {
+    if (p >= 1 && p <= totalPages && p !== page) {
+      onPageChange?.(p);
+    }
+  };
+
+  // Generate page numbers
+  const pages = [];
+  const maxButtons = 5;
+  let start = Math.max(1, page - Math.floor(maxButtons / 2));
+  let end = Math.min(totalPages, start + maxButtons - 1);
+  if (end - start + 1 < maxButtons) {
+    start = Math.max(1, end - maxButtons + 1);
+  }
+  for (let i = start; i <= end; i++) {
+    pages.push(i);
+  }
+
   return (
     <div className={`pagination ${dark ? 'pagination--dark' : ''}`}>
-      <button type="button" aria-label="Previous page" onClick={() => setPage((p) => Math.max(1, p - 1))}>
+      <button
+        type="button"
+        aria-label="Previous page"
+        disabled={page <= 1}
+        onClick={() => handlePage(page - 1)}
+        style={{ opacity: page <= 1 ? 0.35 : 1, cursor: page <= 1 ? 'not-allowed' : 'pointer' }}
+      >
         <FiChevronLeft size={22} strokeWidth={3} />
       </button>
-      {[1, 2, 3].map((p) => (
-        <button key={p} type="button" className={p === page ? 'is-active' : ''} onClick={() => setPage(p)}>
+      {pages.map((p) => (
+        <button
+          key={p}
+          type="button"
+          className={p === page ? 'is-active' : ''}
+          onClick={() => handlePage(p)}
+        >
           {p}
         </button>
       ))}
-      <button type="button" aria-label="Next page" onClick={() => setPage((p) => Math.min(3, p + 1))}>
+      <button
+        type="button"
+        aria-label="Next page"
+        disabled={page >= totalPages}
+        onClick={() => handlePage(page + 1)}
+        style={{ opacity: page >= totalPages ? 0.35 : 1, cursor: page >= totalPages ? 'not-allowed' : 'pointer' }}
+      >
         <FiChevronRight size={22} strokeWidth={3} />
       </button>
     </div>

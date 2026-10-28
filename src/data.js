@@ -187,6 +187,7 @@ export function formatVehicle(v, fallbackIndex = 0) {
     gearbox: v.transmission || v.gearbox || 'Auto',
     seats,
     fuel: v.fuelType || v.fuel || 'Gasoline',
+    isFavorite: Boolean(v.isFavorite),
     raw: v,
   };
 }

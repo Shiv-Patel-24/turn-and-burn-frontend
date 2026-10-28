@@ -11,16 +11,28 @@ import { img, fleetThumbs, tripThumbs, hostVehicles, LOREM_SHORT } from '../../d
 import { navigate } from '../../router';
 import { apiRequest } from '../../lib/api';
 
-function MonthNav({ onOpen }) {
+function MonthNav({ currentDate, onChange, onOpen }) {
+  const label = currentDate.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+  const prevWeek = () => {
+    const d = new Date(currentDate);
+    d.setDate(d.getDate() - 7);
+    onChange(d);
+  };
+  const nextWeek = () => {
+    const d = new Date(currentDate);
+    d.setDate(d.getDate() + 7);
+    onChange(d);
+  };
+
   return (
     <div className="month-nav">
-      <button type="button" aria-label="Previous month">
+      <button type="button" aria-label="Previous week" onClick={prevWeek}>
         <FiChevronLeft size={24} strokeWidth={2.5} />
       </button>
       <button type="button" className="month-nav__label" onClick={onOpen}>
-        May, 2026
+        {label}
       </button>
-      <button type="button" aria-label="Next month">
+      <button type="button" aria-label="Next week" onClick={nextWeek}>
         <FiChevronRight size={24} strokeWidth={2.5} />
       </button>
     </div>
@@ -30,20 +42,89 @@ function MonthNav({ onOpen }) {
 /* Figma: "MacBook Pro 14 - 40" — Host calendar */
 export function HostCalendar() {
   const [cal, setCal] = useState(false);
-  const bookings = {
-    0: [
-      ['Alfonso Donin', '1 E 2nd St, New York, NY 10003, USA', '$225.00', 'Total: 24 hours'],
-      ['Cooper Dorwart', '75 3rd Ave, New York, NY 10003, USA', '$225.00', 'Total: 25 hours'],
-    ],
-    2: [['Cristofer George', '40 E 7th St, New York, NY 10003, USA', '$200.00', 'Total: 20 hours']],
-  };
-  const hours = [49, 0, 20, 0, 0, 0, 0, 0];
-  const revenue = ['$450.00', '$0.00', '$200.00', '$0.00', '$0.00', '$0.00', '$0.00', '$0.00'];
+  const [baseDate, setBaseDate] = useState(() => new Date());
+  const [calendarData, setCalendarData] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [vehicles, setVehicles] = useState([]);
+
+  // Calculate 7-day window from current baseDate (Monday to Sunday)
+  const dayOfWeek = (baseDate.getDay() + 6) % 7; // Monday = 0
+  const monday = new Date(baseDate);
+  monday.setDate(monday.getDate() - dayOfWeek);
+  monday.setHours(0, 0, 0, 0);
+
+  const daysWindow = Array.from({ length: 7 }, (_, i) => {
+    const d = new Date(monday);
+    d.setDate(d.getDate() + i);
+    return d;
+  });
+
+  const fromStr = monday.toISOString();
+  const sunday = new Date(daysWindow[6]);
+  sunday.setHours(23, 59, 59, 999);
+  const toStr = sunday.toISOString();
+
+  useEffect(() => {
+    let active = true;
+    setLoading(true);
+
+    const params = new URLSearchParams({ from: fromStr, to: toStr });
+
+    Promise.all([
+      apiRequest(`/host/calendar?${params.toString()}`).catch((err) => {
+        console.warn('Could not fetch host calendar:', err.message);
+        return null;
+      }),
+      apiRequest('/vehicles/mine').catch(() => null),
+    ]).then(([calRes, vehRes]) => {
+      if (!active) return;
+      if (calRes?.data) {
+        setCalendarData(calRes.data);
+      }
+      const myVehicles = vehRes?.data || [];
+      if (Array.isArray(myVehicles) && myVehicles.length > 0) {
+        setVehicles(myVehicles);
+      }
+      setLoading(false);
+    });
+
+    return () => {
+      active = false;
+    };
+  }, [fromStr, toStr]);
+
+  // Displayed vehicle list (from backend vehicles or calendarData.vehicles)
+  const displayVehicles =
+    vehicles.length > 0
+      ? vehicles
+      : calendarData?.vehicles?.length > 0
+      ? calendarData.vehicles
+      : [];
+
+  // Group bookings by vehicleId and date (YYYY-MM-DD)
+  const bookingsMap = {};
+  if (calendarData?.days && Array.isArray(calendarData.days)) {
+    calendarData.days.forEach((dayItem) => {
+      const dateKey = dayItem.date ? dayItem.date.split('T')[0] : '';
+      if (!bookingsMap[dateKey]) {
+        bookingsMap[dateKey] = {};
+      }
+      if (dayItem.bookings && Array.isArray(dayItem.bookings)) {
+        dayItem.bookings.forEach((b) => {
+          const vId = b.vehicle?._id || b.vehicle || b.vehicleId;
+          if (vId) {
+            bookingsMap[dateKey][vId] = b;
+          }
+        });
+      }
+    });
+  }
+
   return (
     <Layout role="host">
       <div className="container host-cal">
         <div className="toolbar">
-          <MonthNav onOpen={() => setCal(true)} />
+          <MonthNav currentDate={baseDate} onChange={setBaseDate} onOpen={() => setCal(true)} />
           <div className="toolbar__right">
             <SearchField />
             <SortPopover />
@@ -56,43 +137,78 @@ export function HostCalendar() {
             <thead>
               <tr>
                 <th className="cal-table__car">Cars</th>
-                <th>Mon 4/14</th>
-                <th>Tue 4/15</th>
-                <th>Wed 4/16</th>
-                <th>Thu 4/17</th>
+                {daysWindow.map((d, i) => (
+                  <th key={i}>
+                    {d.toLocaleDateString('en-US', { weekday: 'short', month: 'numeric', day: 'numeric' })}
+                  </th>
+                ))}
                 <th className="w-hours">Weekly Hours</th>
                 <th className="w-rev">Weekly Revenue</th>
               </tr>
             </thead>
             <tbody>
-              {fleetThumbs.map((t, r) => (
-                <tr key={r}>
-                  <td className="cal-table__car">
-                    <Thumb src={t} small />
+              {loading ? (
+                <tr>
+                  <td colSpan={10} style={{ textAlign: 'center', padding: '30px', color: '#888' }}>
+                    Loading calendar schedule...
                   </td>
-                  {[0, 1, 2, 3].map((d) => {
-                    const b = bookings[r] && bookings[r][d];
-                    return (
-                      <td key={d}>
-                        {b ? (
-                          <div className="slot">
-                            <div className="slot__box">
-                              <b>{b[0]}</b>
-                              <small>{b[1]}</small>
-                              <small className="muted">{b[2]}</small>
-                            </div>
-                            <span className="slot__total">{b[3]}</span>
-                          </div>
-                        ) : (
-                          <span className="dash">-</span>
-                        )}
-                      </td>
-                    );
-                  })}
-                  <td className="w-hours">{hours[r]}</td>
-                  <td className="w-rev">{revenue[r]}</td>
                 </tr>
-              ))}
+              ) : displayVehicles.length === 0 ? (
+                <tr>
+                  <td colSpan={10} style={{ textAlign: 'center', padding: '40px 20px', color: '#888' }}>
+                    No listed vehicles found. Add a vehicle to view its schedule and availability here.
+                  </td>
+                </tr>
+              ) : (
+                displayVehicles.map((veh, r) => {
+                  const vehId = veh._id || veh.id;
+                  const photo = veh.photos?.[0]?.url || veh.photos?.[0] || fleetThumbs[r % fleetThumbs.length];
+                  let vehWeeklyHours = 0;
+                  let vehWeeklyRev = 0;
+
+                  return (
+                    <tr key={vehId || r}>
+                      <td className="cal-table__car">
+                        <Thumb src={photo} small />
+                      </td>
+                      {daysWindow.map((d, cIdx) => {
+                        const dateKey = d.toISOString().split('T')[0];
+                        const b = bookingsMap[dateKey]?.[vehId];
+
+                        if (b) {
+                          const hrs = b.pricing?.numberOfHours || 24;
+                          const rev = b.pricing?.total || 0;
+                          vehWeeklyHours += hrs;
+                          vehWeeklyRev += rev;
+                          const guestName = b.guest ? `${b.guest.firstName || ''} ${b.guest.lastName || ''}`.trim() : 'Guest';
+                          const loc = b.pickup?.location || veh.location?.address || 'Pickup location';
+
+                          return (
+                            <td key={cIdx}>
+                              <div className="slot">
+                                <div className="slot__box">
+                                  <b>{guestName}</b>
+                                  <small title={loc}>{loc}</small>
+                                  <small className="muted">${Number(rev).toFixed(2)}</small>
+                                </div>
+                                <span className="slot__total">Total: {hrs} hrs</span>
+                              </div>
+                            </td>
+                          );
+                        }
+
+                        return (
+                          <td key={cIdx}>
+                            <span className="dash">-</span>
+                          </td>
+                        );
+                      })}
+                      <td className="w-hours">{vehWeeklyHours || 0} hrs</td>
+                      <td className="w-rev">${vehWeeklyRev.toFixed(2)}</td>
+                    </tr>
+                  );
+                })
+              )}
             </tbody>
           </table>
         </div>
@@ -106,12 +222,13 @@ export function HostCalendar() {
 }
 
 function TripCard({ booking, thumb, ending, onOpen }) {
-  const guestName = booking?.guest ? `${booking.guest.firstName || ''} ${booking.guest.lastName || ''}`.trim() : 'Marcus Dorwart';
-  const pickupLoc = booking?.pickup?.location || '47 W 13th St, New York, NY 10011, USA';
-  const dropoffLoc = booking?.dropoff?.location || '70 Washington Square South, New York, NY 10012, United States';
-  const earnings = booking?.pricing?.total != null ? `$${booking.pricing.total.toFixed(2)}` : '$225.00';
-  const duration = booking?.pricing?.numberOfHours ? `${booking.pricing.numberOfHours} hours` : '24 hours';
+  const guestName = booking?.guest ? `${booking.guest.firstName || ''} ${booking.guest.lastName || ''}`.trim() : 'Guest';
+  const pickupLoc = booking?.pickup?.location || 'Pickup location';
+  const dropoffLoc = booking?.dropoff?.location || 'Dropoff location';
+  const earnings = booking?.pricing?.total != null ? `$${booking.pricing.total.toFixed(2)}` : '$0.00';
+  const duration = booking?.pricing?.numberOfHours ? `${booking.pricing.numberOfHours} hours` : 'Flexible';
   const carPhoto = booking?.vehicle?.photos?.[0]?.url || thumb;
+  const milesIncluded = booking?.pricing?.distanceIncluded ? `${booking.pricing.distanceIncluded} miles` : '800 miles';
 
   return (
     <button type="button" className="trip-card" onClick={onOpen}>
@@ -125,7 +242,7 @@ function TripCard({ booking, thumb, ending, onOpen }) {
           <span className="ico-box">
             <TbArrowsRightLeft />
           </span>
-          <b>800 miles</b>
+          <b>{milesIncluded}</b>
           <span className="ico-box">
             <TbHourglass />
           </span>
@@ -153,12 +270,26 @@ function TripCard({ booking, thumb, ending, onOpen }) {
 
 /* Figma: "MacBook Pro 14 - 42" (Booked trip) / "MacBook Pro 14 - 44" (Trip history) drawers */
 function TripDrawer({ booking, history, onClose }) {
-  const guestName = booking?.guest ? `${booking.guest.firstName || ''} ${booking.guest.lastName || ''}`.trim() : 'Desirae Carder';
-  const pickupLoc = booking?.pickup?.location || '47 W 13th St, New York, NY 10011, USA';
-  const dropoffLoc = booking?.dropoff?.location || '70 Washington Square South, New York, NY 10012, United States';
-  const earnings = booking?.pricing?.total != null ? `$${booking.pricing.total.toFixed(2)}` : '$225.00';
-  const pickupTime = booking?.pickup?.dateTime ? new Date(booking.pickup.dateTime).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' }) : 'Mon, Jul 6';
-  const dropoffTime = booking?.dropoff?.dateTime ? new Date(booking.dropoff.dateTime).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' }) : 'Tue, Jul 7';
+  const guestName = booking?.guest ? `${booking.guest.firstName || ''} ${booking.guest.lastName || ''}`.trim() : 'Guest';
+  const pickupLoc = booking?.pickup?.location || 'Pickup location';
+  const dropoffLoc = booking?.dropoff?.location || 'Dropoff location';
+  const earnings = booking?.pricing?.total != null ? `$${booking.pricing.total.toFixed(2)}` : '$0.00';
+  const pickupDate = booking?.pickup?.dateTime ? new Date(booking.pickup.dateTime) : null;
+  const dropoffDate = booking?.dropoff?.dateTime ? new Date(booking.dropoff.dateTime) : null;
+  const pickupTime = pickupDate ? pickupDate.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' }) : 'Flexible';
+  const dropoffTime = dropoffDate ? dropoffDate.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' }) : 'Flexible';
+  const pickupClock = pickupDate ? pickupDate.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }) : '12:00 PM';
+  const dropoffClock = dropoffDate ? dropoffDate.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }) : '12:00 PM';
+
+  const milesIncluded = booking?.pricing?.distanceIncluded ? `${booking.pricing.distanceIncluded} miles` : 'Unlimited miles';
+  const milesDriven = booking?.totalMilesDriven != null ? `${booking.totalMilesDriven} miles` : '0 miles';
+
+  // Calculate remaining hours if trip is active
+  let hoursLeftText = '';
+  if (!history && dropoffDate) {
+    const diffHours = Math.round((dropoffDate.getTime() - Date.now()) / (1000 * 60 * 60));
+    hoursLeftText = diffHours > 0 ? `This trip ends in ~${diffHours} hours` : 'Trip completed or awaiting return';
+  }
 
   return (
     <Modal onClose={onClose} width={500} className="drawer" align="right">
@@ -178,11 +309,10 @@ function TripDrawer({ booking, history, onClose }) {
         </div>
         <div>
           <p>
-            {guestName} <a href="tel:+15242352369">(+1 524-235-2369)</a>
+            {guestName} {booking?.guest?.phone && <a href={`tel:${booking.guest.phone}`}>({booking.guest.phone})</a>}
           </p>
-          <p>Reference: {booking?.referenceCode || '#BK-9761'}</p>
+          <p>Reference: {booking?.referenceCode || `#BK-${(booking?._id || '0000').slice(-6).toUpperCase()}`}</p>
           <p>Status: <span style={{ textTransform: 'capitalize' }}>{booking?.status || 'Active'}</span></p>
-          <p>Joined Mar 2025</p>
         </div>
       </div>
       <h4>VERIFIED INFO</h4>
@@ -196,12 +326,12 @@ function TripDrawer({ booking, history, onClose }) {
       <div className="trip-dates">
         <div>
           <b>{pickupTime}</b>
-          <small>5:00 PM</small>
+          <small>{pickupClock}</small>
         </div>
         <FiArrowRight size={40} strokeWidth={1.4} />
         <div>
           <b>{dropoffTime}</b>
-          <small>5:00 PM</small>
+          <small>{dropoffClock}</small>
         </div>
       </div>
       <div className="route route--lg">
@@ -215,11 +345,11 @@ function TripDrawer({ booking, history, onClose }) {
       <div className="trip-facts">
         <div>
           <h4>TOTAL MILES INCLUDED</h4>
-          <p>800 miles</p>
+          <p>{milesIncluded}</p>
         </div>
         <div>
           <h4>TOTAL MILES DRIVEN</h4>
-          <p>{history ? '800 miles' : '669 miles'}</p>
+          <p>{milesDriven}</p>
         </div>
         <div>
           <h4>TOTAL EARNINGS</h4>
@@ -227,7 +357,7 @@ function TripDrawer({ booking, history, onClose }) {
         </div>
         <div>
           <h4>CANCELATION POLICY</h4>
-          <p>Non-refundable trip</p>
+          <p>{booking?.cancellationPolicy || 'Standard cancellation policy'}</p>
         </div>
       </div>
       <div className="drawer__box">
@@ -245,7 +375,7 @@ function TripDrawer({ booking, history, onClose }) {
           </>
         ) : (
           <>
-            <p>This trip ends in 17 hours</p>
+            {hoursLeftText && <p>{hoursLeftText}</p>}
             <button type="button" className="btn btn-outline btn-block" disabled>
               Report damage
             </button>
@@ -285,13 +415,6 @@ export function HostTrips({ tab = 'booked' }) {
     };
   }, [history]);
 
-  const defaultGroups = history
-    ? [
-        ['Monday, July 6, 2026', tripThumbs.slice(0, 5)],
-        ['Sunday, July 5, 2026', tripThumbs.slice(5)],
-      ]
-    : [['Monday, July 6, 2026', [img('trip-0.jpg')]]];
-
   return (
     <Layout role="host">
       <div className="container trips">
@@ -313,28 +436,30 @@ export function HostTrips({ tab = 'booked' }) {
           </div>
         </div>
         {loading && <p style={{ color: '#888', padding: '10px 0' }}>Loading host reservations...</p>}
-        {serverBookings.length > 0 ? (
+        {!loading && serverBookings.length === 0 ? (
+          <div style={{ textAlign: 'center', padding: '60px 20px', color: '#888' }}>
+            <p style={{ fontSize: '18px', fontWeight: 600, color: '#333', marginBottom: '8px' }}>
+              {history ? 'No trip history found' : 'No active reservations'}
+            </p>
+            <p>
+              {history
+                ? 'Completed trips and past rentals for your vehicles will show here.'
+                : 'When guests reserve or check in to your vehicles, active trips will appear here.'}
+            </p>
+          </div>
+        ) : (
           <div>
             <h2 className="trips__day">{history ? 'Completed Trips' : 'Active Reservations'}</h2>
             {serverBookings.map((b) => (
               <TripCard
                 key={b._id || b.id}
                 booking={b}
-                thumb={b.vehicle?.photos?.[0]?.url || img('trip-0.jpg')}
+                thumb={b.vehicle?.photos?.[0]?.url || b.vehicle?.photos?.[0] || img('trip-0.jpg')}
                 ending={!history}
                 onOpen={() => setSelectedBooking(b)}
               />
             ))}
           </div>
-        ) : (
-          defaultGroups.map(([day, list]) => (
-            <div key={day}>
-              <h2 className="trips__day">{day}</h2>
-              {list.map((t, i) => (
-                <TripCard key={i} thumb={t} ending={!history} onOpen={() => setSelectedBooking({})} />
-              ))}
-            </div>
-          ))
         )}
       </div>
       {selectedBooking && <TripDrawer booking={selectedBooking} history={history} onClose={() => setSelectedBooking(null)} />}

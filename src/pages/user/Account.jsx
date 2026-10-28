@@ -130,11 +130,6 @@ export function SavedLocations() {
     }
   };
 
-  const displayList = locations.length > 0 ? locations : [
-    { _id: '1', label: 'Home', address: 'Flat No.: 108/77, Ashok Nagar', landmark: 'Hyderabad Airport' },
-    { _id: '2', label: 'Office', address: '47 W 13th St, New York', landmark: 'Near Washington Square' }
-  ];
-
   return (
     <Layout role="user">
       <div className="container">
@@ -145,29 +140,47 @@ export function SavedLocations() {
               <FiPlus /> Add A New Location
             </button>
           }
-        />
-        {loading && <p style={{ color: '#888', padding: '10px 0' }}>Loading saved addresses...</p>}
-        <div className="saved">
-          <div className="saved__list">
-            {displayList.map((loc) => (
-              <div className="saved__card" key={loc._id}>
-                <div className="saved__top">
-                  <MdLocationOn size={20} />
-                  <div>
-                    <b>{loc.label || 'Saved Location'}</b>
-                    <small>{loc.address}</small>
-                  </div>
-                  <button type="button" aria-label="Delete" onClick={() => handleDelete(loc._id)}>
-                    <FiTrash2 />
-                  </button>
-                </div>
-                <p>Address: {loc.address}</p>
-                {loc.landmark && <p>Landmark: {loc.landmark}</p>}
-              </div>
-            ))}
+        >
+          Manage your saved addresses for fast pick-up and drop-off during checkout.
+        </PageTitle>
+
+        {loading ? (
+          <div style={{ padding: '24px', background: '#f8fafc', borderRadius: '12px', border: '1px solid #e2e8f0', margin: '16px 0', color: '#64748b' }}>
+            Loading your saved addresses...
           </div>
-          <img className="saved__map" src={img('saved-map.jpg')} alt="Map" />
-        </div>
+        ) : locations.length === 0 ? (
+          <div style={{ background: '#f8fafc', padding: '40px 24px', textAlign: 'center', borderRadius: '12px', border: '1px solid #e2e8f0', margin: '20px 0' }}>
+            <p style={{ color: '#334155', fontWeight: 600, fontSize: '18px', margin: 0 }}>No saved locations yet</p>
+            <p style={{ color: '#64748b', fontSize: '14px', margin: '8px 0 20px' }}>
+              Add your home, office, or airport address to quickly prefill your reservation trips.
+            </p>
+            <button type="button" className="btn btn-primary" onClick={() => setModal(true)}>
+              <FiPlus style={{ marginRight: '6px' }} /> Add Your First Location
+            </button>
+          </div>
+        ) : (
+          <div className="saved">
+            <div className="saved__list">
+              {locations.map((loc) => (
+                <div className="saved__card" key={loc._id}>
+                  <div className="saved__top">
+                    <MdLocationOn size={20} />
+                    <div>
+                      <b>{loc.label || 'Saved Location'}</b>
+                      <small>{loc.address}</small>
+                    </div>
+                    <button type="button" aria-label="Delete" onClick={() => handleDelete(loc._id)}>
+                      <FiTrash2 />
+                    </button>
+                  </div>
+                  <p>Address: {loc.address}</p>
+                  {loc.landmark && <p>Landmark: {loc.landmark}</p>}
+                </div>
+              ))}
+            </div>
+            <img className="saved__map" src={img('saved-map.jpg')} alt="Map" />
+          </div>
+        )}
       </div>
       {modal && <LocationModal onClose={() => setModal(false)} onCreated={fetchLocations} />}
     </Layout>
@@ -559,19 +572,19 @@ export function PaymentHistory() {
 }
 
 /* Figma: "Frame 2147238977" — Gift card payment overlay */
-function GiftPayModal({ onClose, onPaid }) {
+function GiftPayModal({ onClose, onPaid, loading, amount }) {
   return (
     <Modal onClose={onClose} width={850} className="gift-pay">
       <div className="panel">
         <div className="center-head">
           <h3>Payment Method</h3>
-          <small>Please enter your payment method</small>
+          <small>Confirm your payment of ${amount.toFixed(2)} to complete your gift card purchase</small>
         </div>
         <PaymentFields />
       </div>
       <AgreeBox />
-      <button type="button" className="btn btn-primary btn-block btn-xl" onClick={onPaid}>
-        Pay now
+      <button type="button" className="btn btn-primary btn-block btn-xl" disabled={loading} onClick={onPaid}>
+        {loading ? 'Processing Payment...' : `Pay $${amount.toFixed(2)} now`}
       </button>
     </Modal>
   );
@@ -579,73 +592,288 @@ function GiftPayModal({ onClose, onPaid }) {
 
 /* Figma: "MacBook Pro 14 - 30" — Gift cards */
 export function GiftCards() {
-  const [value, setValue] = useState('$50');
-  const [via, setVia] = useState('');
+  const currentUser = getCurrentUser() || {};
+  const [value, setValue] = useState('50');
+  const [customValue, setCustomValue] = useState('');
+  const [via, setVia] = useState('email');
   const [msg, setMsg] = useState('');
+  const [recipientName, setRecipientName] = useState('');
+  const [recipientEmail, setRecipientEmail] = useState('');
+  const [recipientPhone, setRecipientPhone] = useState('');
+  const [senderName, setSenderName] = useState(() => `${currentUser.firstName || ''} ${currentUser.lastName || ''}`.trim() || 'A Friend');
+  const [sendOnDate, setSendOnDate] = useState(() => new Date().toISOString().split('T')[0]);
+
   const [step, setStep] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+
+  // Balance and history
+  const [creditBalance, setCreditBalance] = useState(0);
+  const [redeemCode, setRedeemCode] = useState('');
+  const [redeemMsg, setRedeemMsg] = useState('');
+  const [redeeming, setRedeeming] = useState(false);
+
+  const fetchCardData = () => {
+    apiRequest('/payments/gift-cards/mine')
+      .then((res) => {
+        if (typeof res?.data?.travelCreditBalance === 'number') {
+          setCreditBalance(res.data.travelCreditBalance);
+        }
+      })
+      .catch(() => {});
+  };
+
+  useEffect(() => {
+    fetchCardData();
+  }, []);
+
+  const numericAmount = value === 'custom' ? parseFloat(customValue) || 50 : parseFloat(value) || 50;
+
+  const handleValidateForm = () => {
+    setError('');
+    if (!recipientName.trim()) {
+      setError('Please provide the recipient name.');
+      return false;
+    }
+    if (!recipientEmail.trim() || !recipientEmail.includes('@')) {
+      setError('Please provide a valid recipient email address.');
+      return false;
+    }
+    if (!senderName.trim()) {
+      setError('Please specify your name as the sender.');
+      return false;
+    }
+    if (numericAmount < 10 || numericAmount > 1000) {
+      setError('Gift card amount must be between $10 and $1,000.');
+      return false;
+    }
+    return true;
+  };
+
+  const handleProceedToPayment = () => {
+    if (handleValidateForm()) {
+      setStep('pay');
+    }
+  };
+
+  const handleExecutePurchase = async () => {
+    setError('');
+    setLoading(true);
+    try {
+      const payload = {
+        recipientName: recipientName.trim(),
+        recipientEmail: recipientEmail.trim(),
+        recipientPhone: recipientPhone.trim() || undefined,
+        deliveryMethod: via,
+        senderName: senderName.trim(),
+        message: msg.trim() || undefined,
+        amount: [50, 100, 200, 500].includes(numericAmount) ? numericAmount : undefined,
+        customAmount: ![50, 100, 200, 500].includes(numericAmount) ? numericAmount : undefined,
+        sendOn: new Date(`${sendOnDate}T12:00:00.000Z`).toISOString(),
+        paymentMethodId: 'pm_card_visa', // standard test token accepted by backend payment provider
+      };
+
+      await apiRequest('/payments/gift-card', {
+        method: 'POST',
+        body: payload,
+      });
+
+      setStep('done');
+      fetchCardData();
+    } catch (err) {
+      console.warn('Gift card purchase error:', err);
+      setError(err?.message || 'Failed to complete gift card purchase. Please check your details.');
+      setStep(null);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleRedeem = async (e) => {
+    e.preventDefault();
+    if (!redeemCode.trim()) return;
+    setRedeeming(true);
+    setRedeemMsg('');
+    try {
+      const res = await apiRequest('/payments/gift-cards/redeem', {
+        method: 'POST',
+        body: { code: redeemCode.trim().toUpperCase() },
+      });
+      setRedeemMsg(`Success! $${res?.data?.credited || ''} has been added to your travel credit.`);
+      setRedeemCode('');
+      fetchCardData();
+    } catch (err) {
+      setRedeemMsg(err?.message || 'Invalid or already redeemed gift card code.');
+    } finally {
+      setRedeeming(false);
+    }
+  };
+
   return (
     <Layout role="user">
       <div className="container">
-        <PageTitle title="Turo gift cards">
-          Lorem Ipsum is simply dummy text of the printing and typesetting industry. Lorem Ipsum has been the industry's standard dummy text ever since the 1500s.
+        <PageTitle title="Turn and Burn Gift Cards">
+          Give the gift of unforgettable journeys. Turn and Burn gift cards never expire and are redeemable towards any luxury vehicle in our fleet.
         </PageTitle>
-        <div className="gift-hero">
-          <img src={img('gift-1.jpg')} alt="" />
-          <img src={img('gift-2.jpg')} alt="" />
-          <img src={img('gift-3.jpg')} alt="" />
+
+        {/* Travel Credit & Redeem Banner */}
+        <div style={{ background: '#f8fafc', padding: '20px 24px', borderRadius: '12px', border: '1px solid #e2e8f0', margin: '20px 0 28px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '16px' }}>
+          <div>
+            <span style={{ fontSize: '13px', color: '#64748b', fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Your Travel Credit Balance</span>
+            <h2 style={{ margin: '4px 0 0', color: '#0f172a', fontSize: '28px' }}>${creditBalance.toFixed(2)}</h2>
+          </div>
+          <form onSubmit={handleRedeem} style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+            <input
+              placeholder="Enter Gift Card Code"
+              value={redeemCode}
+              onChange={(e) => setRedeemCode(e.target.value)}
+              style={{ padding: '10px 14px', borderRadius: '8px', border: '1px solid #cbd5e1', fontSize: '14px', minWidth: '220px', textTransform: 'uppercase' }}
+            />
+            <button type="submit" className="btn btn-black" disabled={redeeming || !redeemCode.trim()}>
+              {redeeming ? 'Redeeming...' : 'Redeem Code'}
+            </button>
+          </form>
         </div>
+
+        {redeemMsg && (
+          <div style={{ padding: '12px 16px', borderRadius: '8px', marginBottom: '20px', fontSize: '14px', backgroundColor: redeemMsg.startsWith('Success') ? '#dcfce7' : '#fee2e2', color: redeemMsg.startsWith('Success') ? '#15803d' : '#b91c1c' }}>
+            {redeemMsg}
+          </div>
+        )}
+
+        {error && (
+          <div style={{ color: '#ef4444', backgroundColor: '#fee2e2', padding: '12px', borderRadius: '8px', marginBottom: '20px' }}>
+            {error}
+          </div>
+        )}
+
+        <div className="gift-hero">
+          <img src={img('gift-1.jpg')} alt="Gift Card" />
+          <img src={img('gift-2.jpg')} alt="Gift Card" />
+          <img src={img('gift-3.jpg')} alt="Gift Card" />
+        </div>
+
         <div className="form-narrow gift-form">
-          <h2>Value (USD)</h2>
-          <p className="sm">Lorem Ipsum is simply dummy text of the printing and typesetting industry.</p>
+          <h2>Select Value (USD)</h2>
+          <p className="sm">Choose an amount or enter a custom balance between $10 and $1,000.</p>
           <div className="values">
-            {['$50', '$100', '$200', '$500'].map((v) => (
-              <button key={v} type="button" className={value === v ? 'is-active' : ''} onClick={() => setValue(v)}>
-                {v}
+            {['50', '100', '200', '500'].map((v) => (
+              <button
+                key={v}
+                type="button"
+                className={value === v ? 'is-active' : ''}
+                onClick={() => {
+                  setValue(v);
+                  setCustomValue('');
+                }}
+              >
+                ${v}
               </button>
             ))}
             <label className={`values__custom ${value === 'custom' ? 'is-active' : ''}`}>
-              $ <input placeholder="Custom" onFocus={() => setValue('custom')} />
+              ${' '}
+              <input
+                placeholder="Custom"
+                type="number"
+                min="10"
+                max="1000"
+                value={customValue}
+                onChange={(e) => {
+                  setCustomValue(e.target.value);
+                  setValue('custom');
+                }}
+                onFocus={() => setValue('custom')}
+              />
             </label>
           </div>
-          <p className="sm">The recipient will add the value of this gift card to their travel credit balance, and it’ll never expire.</p>
-          <h3>How would you like to send it?</h3>
+          <p className="sm">The recipient can redeem this gift card directly into their travel credit balance to use on any future rental.</p>
+
+          <h3>How would you like to deliver it?</h3>
           <Radio name="via" checked={via === 'email'} onChange={() => setVia('email')}>
-            Email
+            Email Address
           </Radio>
           <Radio name="via" checked={via === 'text'} onChange={() => setVia('text')}>
-            Text message
+            SMS / Text message
           </Radio>
+
           <h3>Who is it for?</h3>
           <Field label="Recipient name">
-            <Input placeholder="Enter.." />
+            <Input
+              placeholder="e.g. Sarah Connor"
+              value={recipientName}
+              onChange={(e) => setRecipientName(e.target.value)}
+            />
           </Field>
           <Field label="Recipient email">
-            <Input placeholder="Enter.." />
+            <Input
+              type="email"
+              placeholder="e.g. sarah@example.com"
+              value={recipientEmail}
+              onChange={(e) => setRecipientEmail(e.target.value)}
+            />
           </Field>
-          <Field label="Add a custom message" hint={`${150 - msg.length} characters left`}>
-            <textarea className="input textarea" rows={5} maxLength={150} placeholder="Here’s a Turn and Burn gift card to help you get on the road!" value={msg} onChange={(e) => setMsg(e.target.value)} />
+          {via === 'text' && (
+            <Field label="Recipient mobile phone">
+              <Input
+                placeholder="e.g. +1 555-0199"
+                value={recipientPhone}
+                onChange={(e) => setRecipientPhone(e.target.value)}
+              />
+            </Field>
+          )}
+          <Field label="Personal message" hint={`${150 - msg.length} characters left`}>
+            <textarea
+              className="input textarea"
+              rows={4}
+              maxLength={150}
+              placeholder="Here’s a Turn and Burn gift card to help you get on the road!"
+              value={msg}
+              onChange={(e) => setMsg(e.target.value)}
+            />
           </Field>
-          <h3>Who is it from?</h3>
-          <Field label="Name">
-            <Input placeholder="Enter.." />
+
+          <h3>Sender details</h3>
+          <Field label="Your name">
+            <Input
+              placeholder="Your full name"
+              value={senderName}
+              onChange={(e) => setSenderName(e.target.value)}
+            />
           </Field>
-          <Field label="Send on">
-            <Input defaultValue="July 04, 2026 (Today)" />
+          <Field label="Send on date">
+            <Input
+              type="date"
+              value={sendOnDate}
+              min={new Date().toISOString().split('T')[0]}
+              onChange={(e) => setSendOnDate(e.target.value)}
+            />
           </Field>
-          <p className="sm">
-            Lorem Ipsum is simply dummy text of the printing and typesetting industry. Lorem Ipsum has been the industry's standard dummy text ever since 1966, when designers at Letraset and James Mosley, the librarian at St Bride Printing Library in London, took a 1914 Cicero translation and scrambled it to make dummy text for Letraset's Body Type sheets. It has survived not only many decades, but also the leap into electronic typesetting, remaining essentially unchanged.
-          </p>
-          <button type="button" className="btn btn-primary btn-lg btn-upper" onClick={() => setStep('pay')}>
-            PAY NOW
+
+          <button
+            type="button"
+            className="btn btn-primary btn-lg btn-upper"
+            style={{ marginTop: '20px' }}
+            onClick={handleProceedToPayment}
+          >
+            CONTINUE TO PAYMENT • ${numericAmount.toFixed(2)}
           </button>
         </div>
       </div>
-      {step === 'pay' && <GiftPayModal onClose={() => setStep(null)} onPaid={() => setStep('done')} />}
+
+      {step === 'pay' && (
+        <GiftPayModal
+          amount={numericAmount}
+          loading={loading}
+          onClose={() => setStep(null)}
+          onPaid={handleExecutePurchase}
+        />
+      )}
+
       {step === 'done' && (
         <SuccessModal
-          text="You Successfully Completed The Payment And The Gift Card Has Beed Successfully Send To The Recipient's Email Address."
+          text={`Your gift card of $${numericAmount.toFixed(2)} has been successfully purchased and sent to ${recipientEmail}.`}
           onClose={() => setStep(null)}
-          onDone={() => navigate('/app')}
+          onDone={() => setStep(null)}
         />
       )}
     </Layout>
