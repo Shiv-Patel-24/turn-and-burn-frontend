@@ -35,7 +35,28 @@ const Terms = () => (
   </>
 );
 
-export function SignUpModal({ onClose, go }) {
+const COUNTRY_DIAL_CODES = [
+  { code: '+1', name: 'US / CA', flag: '🇺🇸' },
+  { code: '+44', name: 'UK', flag: '🇬🇧' },
+  { code: '+91', name: 'IN', flag: '🇮🇳' },
+  { code: '+61', name: 'AU', flag: '🇦🇺' },
+  { code: '+49', name: 'DE', flag: '🇩🇪' },
+  { code: '+33', name: 'FR', flag: '🇫🇷' },
+  { code: '+971', name: 'AE', flag: '🇦🇪' },
+  { code: '+966', name: 'SA', flag: '🇸🇦' },
+  { code: '+81', name: 'JP', flag: '🇯🇵' },
+  { code: '+86', name: 'CN', flag: '🇨🇳' },
+  { code: '+34', name: 'ES', flag: '🇪🇸' },
+  { code: '+39', name: 'IT', flag: '🇮🇹' },
+  { code: '+52', name: 'MX', flag: '🇲🇽' },
+  { code: '+55', name: 'BR', flag: '🇧🇷' },
+  { code: '+27', name: 'ZA', flag: '🇿🇦' },
+  { code: '+65', name: 'SG', flag: '🇸🇬' },
+  { code: '+64', name: 'NZ', flag: '🇳🇿' },
+];
+
+export function SignUpModal({ onClose, go, initialRole = 'guest' }) {
+  const [role, setRole] = useState(initialRole);
   const [firstName, setFirstName] = useState('');
   const [lastName, setLastName] = useState('');
   const [email, setEmail] = useState('');
@@ -79,10 +100,31 @@ export function SignUpModal({ onClose, go }) {
       if (res?.data?.accessToken) {
         setAccessToken(res.data.accessToken);
         if (res.data.refreshToken) setRefreshToken(res.data.refreshToken);
-        setCurrentUser(res.data.user);
+
+        let finalUser = res.data.user;
+
+        // If user chose Host profile, activate host role immediately!
+        if (role === 'host') {
+          try {
+            await apiRequest('/users/me/switch-role', {
+              method: 'POST',
+              body: { role: 'host' },
+            });
+            finalUser = { ...finalUser, activeRole: 'host' };
+          } catch (switchErr) {
+            console.warn('Could not auto-activate host role:', switchErr.message);
+          }
+        }
+
+        setCurrentUser(finalUser);
       }
+
       onClose();
-      navigate('/app');
+      if (role === 'host') {
+        navigate('/host');
+      } else {
+        navigate('/app');
+      }
     } catch (err) {
       setError(err.message || 'Registration failed. Please try again.');
     } finally {
@@ -92,8 +134,24 @@ export function SignUpModal({ onClose, go }) {
 
   return (
     <Modal onClose={onClose} width={639} className="auth">
-      <ModalHeader title="Sign up" onClose={onClose} />
+      <ModalHeader title={role === 'host' ? 'Sign up as Host' : 'Sign up as Guest'} onClose={onClose} />
       <form className="auth__body" onSubmit={handleSubmit}>
+        <div className="auth-role-select">
+          <button
+            type="button"
+            className={`auth-role-btn ${role === 'guest' ? 'is-active' : ''}`}
+            onClick={() => setRole('guest')}
+          >
+            🚗 Rent a Car (Guest)
+          </button>
+          <button
+            type="button"
+            className={`auth-role-btn ${role === 'host' ? 'is-active' : ''}`}
+            onClick={() => setRole('host')}
+          >
+            💼 Host My Car (Host)
+          </button>
+        </div>
         {error && (
           <div style={{ color: '#ef4444', backgroundColor: '#fee2e2', padding: '10px 14px', borderRadius: '8px', marginBottom: '14px', fontSize: '14px' }}>
             {error}
@@ -126,7 +184,18 @@ export function SignUpModal({ onClose, go }) {
         </Field>
         <Field label="Phone number">
           <div className="phone-row">
-            <span className="input input--code">{phoneCountryCode}</span>
+            <select
+              className="input input--code"
+              value={phoneCountryCode}
+              onChange={(e) => setPhoneCountryCode(e.target.value)}
+              aria-label="Country Dial Code"
+            >
+              {COUNTRY_DIAL_CODES.map((item) => (
+                <option key={`${item.code}-${item.name}`} value={item.code}>
+                  {item.flag} {item.code} ({item.name})
+                </option>
+              ))}
+            </select>
             <Input
               placeholder="Enter your phone number..."
               value={phoneNumber}
@@ -155,7 +224,7 @@ export function SignUpModal({ onClose, go }) {
           Send me promotions and announcement via email &amp; SMS
         </Checkbox>
         <button type="submit" className="btn btn-primary btn-block btn-lg" disabled={loading}>
-          {loading ? 'Creating account...' : 'Sign up'}
+          {loading ? 'Creating account...' : role === 'host' ? 'Sign up as Host' : 'Sign up'}
         </button>
         <p className="auth__switch">
           Already have an account!{' '}
@@ -168,7 +237,8 @@ export function SignUpModal({ onClose, go }) {
   );
 }
 
-export function LoginModal({ onClose, go }) {
+export function LoginModal({ onClose, go, initialRole = 'guest' }) {
+  const [role, setRole] = useState(initialRole);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [agree, setAgree] = useState(true);
@@ -191,14 +261,38 @@ export function LoginModal({ onClose, go }) {
 
       const token = res?.data?.accessToken;
       const refreshToken = res?.data?.refreshToken;
-      const user = res?.data?.user;
+      let user = res?.data?.user;
 
       if (token) setAccessToken(token);
       if (refreshToken) setRefreshToken(refreshToken);
+
+      // If user selected Host on login modal, switch active role to host if needed
+      if (role === 'host' && user?.activeRole !== 'host') {
+        try {
+          await apiRequest('/users/me/switch-role', {
+            method: 'POST',
+            body: { role: 'host' },
+          });
+          user = { ...user, activeRole: 'host' };
+        } catch (switchErr) {
+          console.warn('Could not switch to host on login:', switchErr.message);
+        }
+      } else if (role === 'guest' && user?.activeRole === 'host') {
+        try {
+          await apiRequest('/users/me/switch-role', {
+            method: 'POST',
+            body: { role: 'guest' },
+          });
+          user = { ...user, activeRole: 'guest' };
+        } catch (switchErr) {
+          console.warn('Could not switch to guest on login:', switchErr.message);
+        }
+      }
+
       if (user) setCurrentUser(user);
 
       onClose();
-      if (user?.activeRole === 'host') {
+      if (role === 'host' || user?.activeRole === 'host') {
         navigate('/host');
       } else {
         navigate('/app');
@@ -212,8 +306,24 @@ export function LoginModal({ onClose, go }) {
 
   return (
     <Modal onClose={onClose} width={639} className="auth">
-      <ModalHeader title="Log in" onClose={onClose} />
+      <ModalHeader title={role === 'host' ? 'Log in as Host' : 'Log in'} onClose={onClose} />
       <form className="auth__body" onSubmit={handleSubmit}>
+        <div className="auth-role-select">
+          <button
+            type="button"
+            className={`auth-role-btn ${role === 'guest' ? 'is-active' : ''}`}
+            onClick={() => setRole('guest')}
+          >
+            🚗 Guest Log In
+          </button>
+          <button
+            type="button"
+            className={`auth-role-btn ${role === 'host' ? 'is-active' : ''}`}
+            onClick={() => setRole('host')}
+          >
+            💼 Host Log In
+          </button>
+        </div>
         {error && (
           <div style={{ color: '#ef4444', backgroundColor: '#fee2e2', padding: '10px 14px', borderRadius: '8px', marginBottom: '14px', fontSize: '14px' }}>
             {error}

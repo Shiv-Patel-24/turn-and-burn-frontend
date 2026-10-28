@@ -134,6 +134,10 @@ export function SearchPanel({
   initialCity = '',
   initialPickDate = '',
   initialDropDate = '',
+  initialPickupTime = '10:00',
+  initialDropoffTime = '10:00',
+  mode = 'Daily',
+  trip = 'Round Trip',
   onSearch,
 }) {
   const [cal, setCal] = useState(null);
@@ -141,16 +145,35 @@ export function SearchPanel({
   const [dropoffCity, setDropoffCity] = useState(initialCity || '');
   const [pick, setPick] = useState(initialPickDate || '12/12/2026');
   const [drop, setDrop] = useState(initialDropDate || '12/15/2026');
+  const [pickupTime, setPickupTime] = useState(initialPickupTime || '10:00');
+  const [dropoffTime, setDropoffTime] = useState(initialDropoffTime || '10:00');
 
   const handleSearchSubmit = () => {
     const searchParams = new URLSearchParams();
     const city = pickupCity.trim() || dropoffCity.trim();
     if (city) searchParams.set('city', city);
+    if (pickupCity.trim()) searchParams.set('pickupCity', pickupCity.trim());
+    if (dropoffCity.trim()) searchParams.set('dropoffCity', dropoffCity.trim());
     if (pick) searchParams.set('pickupDate', pick);
     if (drop) searchParams.set('dropoffDate', drop);
+    if (pickupTime) searchParams.set('pickupTime', pickupTime);
+    if (dropoffTime) searchParams.set('dropoffTime', dropoffTime);
+    if (mode) searchParams.set('mode', mode.toLowerCase());
+    if (trip) searchParams.set('tripType', trip.toLowerCase().includes('one') ? 'oneway' : 'round');
 
     if (onSearch) {
-      onSearch({ city, pickupDate: pick, dropoffDate: drop, params: searchParams });
+      onSearch({
+        city,
+        pickupCity: pickupCity.trim(),
+        dropoffCity: dropoffCity.trim(),
+        pickupDate: pick,
+        dropoffDate: drop,
+        pickupTime,
+        dropoffTime,
+        mode: mode.toLowerCase(),
+        trip: trip.toLowerCase(),
+        params: searchParams,
+      });
       return;
     }
 
@@ -175,7 +198,12 @@ export function SearchPanel({
         </SearchCell>
         {withTime && (
           <SearchCell label="Pick-up time" className="search__cell--time" iconRight={<FiClock size={20} />}>
-            <input type="time" aria-label="Pick-up time" />
+            <input
+              type="time"
+              aria-label="Pick-up time"
+              value={pickupTime}
+              onChange={(e) => setPickupTime(e.target.value)}
+            />
           </SearchCell>
         )}
         <SearchCell label="Drop-off Location" className="search__cell--loc" icon={<FiMapPin size={20} />}>
@@ -191,7 +219,12 @@ export function SearchPanel({
         </SearchCell>
         {withTime && (
           <SearchCell label="Drop-off time" className="search__cell--time" iconRight={<FiClock size={20} />}>
-            <input type="time" aria-label="Drop-off time" />
+            <input
+              type="time"
+              aria-label="Drop-off time"
+              value={dropoffTime}
+              onChange={(e) => setDropoffTime(e.target.value)}
+            />
           </SearchCell>
         )}
       </div>

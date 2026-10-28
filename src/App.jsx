@@ -138,9 +138,9 @@ function GlobalModals() {
   const go = (name) => open(name);
   switch (modal.name) {
     case 'signup':
-      return <SignUpModal onClose={close} go={go} />;
+      return <SignUpModal onClose={close} go={go} initialRole={modal?.props?.role || 'guest'} />;
     case 'login':
-      return <LoginModal onClose={close} go={go} />;
+      return <LoginModal onClose={close} go={go} initialRole={modal?.props?.role || 'guest'} />;
     case 'forgot':
       return <ForgotModal onClose={close} go={go} />;
     case 'otp':
