@@ -4,7 +4,7 @@ import { FaStar, FaHeart } from 'react-icons/fa';
 import { TbGauge, TbPalette, TbGasStation } from 'react-icons/tb';
 import Layout from '../components/Layout';
 import { CarCard } from '../components/Cards';
-import { img, carAt, cars } from '../data';
+import { img, carAt, cars, formatVehicle } from '../data';
 import { navigate, useRoute } from '../router';
 import { useUI } from '../ui';
 import { apiRequest } from '../lib/api';
@@ -44,6 +44,8 @@ export default function CarDetail({ role = 'guest' }) {
   const [idx, setIdx] = useState(0);
   const [fav, setFav] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [similarVehicles, setSimilarVehicles] = useState([]);
+  const [similarLoading, setSimilarLoading] = useState(true);
   const [hostListingsCount, setHostListingsCount] = useState(null);
   const isUser = role === 'user';
   const guard = (fn) => () => (isUser ? fn() : open('signup'));
@@ -121,6 +123,21 @@ export default function CarDetail({ role = 'guest' }) {
       })
       .catch(() => {});
 
+    // Fetch dynamic similar vehicles
+    setSimilarLoading(true);
+    apiRequest(`/vehicles/${carId}/similar`)
+      .then((res) => {
+        if (!active) return;
+        const list = res?.data || [];
+        setSimilarVehicles(Array.isArray(list) ? list : []);
+      })
+      .catch(() => {
+        if (active) setSimilarVehicles([]);
+      })
+      .finally(() => {
+        if (active) setSimilarLoading(false);
+      });
+
     return () => {
       active = false;
     };
@@ -143,6 +160,17 @@ export default function CarDetail({ role = 'guest' }) {
   const carPrice = vehicle?.pricing?.dailyRate
     ? `$${vehicle.pricing.dailyRate.toFixed(2)}`
     : '$78.90';
+
+  // Dynamic monthly rental rate calculation (Option A)
+  const dailyRateNum = typeof vehicle?.pricing?.dailyRate === 'number'
+    ? vehicle.pricing.dailyRate
+    : (typeof vehicle?.price === 'number' ? vehicle.price : 60);
+  const monthlyDiscount = typeof vehicle?.pricing?.monthlyDiscountPercent === 'number' && vehicle.pricing.monthlyDiscountPercent > 0
+    ? vehicle.pricing.monthlyDiscountPercent
+    : (typeof vehicle?.pricing?.weeklyDiscountPercent === 'number' && vehicle.pricing.weeklyDiscountPercent > 0
+      ? vehicle.pricing.weeklyDiscountPercent
+      : 15); // Standard 15% long-term discount if not configured
+  const monthlyRate = Math.round(dailyRateNum * 30 * (1 - monthlyDiscount / 100));
   const gallery = (vehicle?.photos && vehicle.photos.length > 0)
     ? vehicle.photos.map((p) => p.url)
     : defaultGallery;
@@ -212,7 +240,31 @@ export default function CarDetail({ role = 'guest' }) {
             <div className="detail__title-row">
               <h1>{carName}</h1>
               <div className="detail__icons">
-                <button type="button" aria-label="Save" onClick={() => setFav(!fav)}>
+                <button
+                  type="button"
+                  aria-label="Save"
+                  onClick={async () => {
+                    const token = localStorage.getItem('turn_and_burn_access_token');
+                    if (!token || !isUser) {
+                      open('signup');
+                      return;
+                    }
+                    const targetId = vehicle?._id || vehicle?.id || carId;
+                    if (!targetId) return;
+                    const nextFav = !fav;
+                    setFav(nextFav);
+                    try {
+                      if (nextFav) {
+                        await apiRequest(`/vehicles/${targetId}/favorite`, { method: 'POST' });
+                      } else {
+                        await apiRequest(`/vehicles/${targetId}/favorite`, { method: 'DELETE' });
+                      }
+                    } catch (err) {
+                      setFav(!nextFav);
+                      console.warn('Could not update favorite status:', err.message);
+                    }
+                  }}
+                >
                   {fav ? <FaHeart color="#ef4444" /> : <FiHeart />}
                 </button>
                 <button type="button" aria-label="Share">
@@ -419,11 +471,15 @@ export default function CarDetail({ role = 'guest' }) {
           </div>
 
           <div className="card payment-card">
-            <h3>Estimated Payment</h3>
-            <strong>$320/mo</strong>
-            <p>Based on 72 months at 6.5% APR with $2,000 down</p>
-            <button type="button" className="btn btn-white btn-block" onClick={guard(() => {})}>
-              Get Pre-Approved
+            <h3>Monthly Rental Rate</h3>
+            <strong>${monthlyRate.toLocaleString()}/mo</strong>
+            <p>Based on a 30-day extended rental with a {monthlyDiscount}% long-term discount applied</p>
+            <button
+              type="button"
+              className="btn btn-white btn-block"
+              onClick={guard(() => navigate(`/app/book?vehicle=${carId || vehicle?._id || ''}`))}
+            >
+              Book Monthly Trip
             </button>
           </div>
 
@@ -472,9 +528,62 @@ export default function CarDetail({ role = 'guest' }) {
           <h2>Similar Vehicles You May Like</h2>
         </div>
         <div className="car-row__track">
-          {[2, 1, 0, 3, 4, 5].map((i) => (
-            <CarCard key={i} car={carAt(i)} onRent={guard(() => navigate('/app/book'))} />
-          ))}
+          {similarLoading ? (
+            Array.from({ length: 4 }).map((_, idx) => (
+              <div
+                className="car-card-skeleton"
+                key={idx}
+                style={{ width: '300px', flex: 'none' }}
+              >
+                <div className="skeleton-thumb skeleton-shimmer" />
+                <div className="skeleton-title skeleton-shimmer" />
+                <div className="skeleton-price skeleton-shimmer" />
+                <div className="skeleton-specs">
+                  <div className="skeleton-spec-item skeleton-shimmer" />
+                  <div className="skeleton-spec-item skeleton-shimmer" />
+                  <div className="skeleton-spec-item skeleton-shimmer" />
+                  <div className="skeleton-spec-item skeleton-shimmer" />
+                </div>
+                <div className="skeleton-btn skeleton-shimmer" />
+              </div>
+            ))
+          ) : similarVehicles.length > 0 ? (
+            similarVehicles.map((v, i) => {
+              const formatted = formatVehicle(v, i);
+              return (
+                <CarCard
+                  key={v._id || v.id || i}
+                  car={formatted}
+                  onRent={guard(() => navigate(`/app/book?vehicle=${v._id || v.id || ''}`))}
+                  onToggleFavorite={async (item, nextLiked) => {
+                    const token = localStorage.getItem('turn_and_burn_access_token');
+                    if (!token || !isUser) {
+                      open('signup');
+                      return;
+                    }
+                    const tId = item?._id || item?.id;
+                    if (!tId) return;
+                    if (nextLiked) {
+                      await apiRequest(`/vehicles/${tId}/favorite`, { method: 'POST' });
+                    } else {
+                      await apiRequest(`/vehicles/${tId}/favorite`, { method: 'DELETE' });
+                    }
+                    setSimilarVehicles((prev) =>
+                      prev.map((sv) =>
+                        String(sv._id || sv.id) === String(tId)
+                          ? { ...sv, isFavorite: nextLiked }
+                          : sv
+                      )
+                    );
+                  }}
+                />
+              );
+            })
+          ) : (
+            <div style={{ padding: '24px', color: '#64748b' }}>
+              <p>No other similar vehicles found at this time.</p>
+            </div>
+          )}
         </div>
       </section>
     </Layout>

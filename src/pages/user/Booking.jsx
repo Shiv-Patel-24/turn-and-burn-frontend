@@ -74,35 +74,78 @@ export function SuccessModal({ onClose, onDone, text = 'You Successfully Complet
   );
 }
 
-function RentalInfoFields() {
+function RentalInfoFields({
+  pickupCity,
+  setPickupCity,
+  pickupDate,
+  setPickupDate,
+  pickupTime,
+  setPickupTime,
+  dropoffCity,
+  setDropoffCity,
+  dropoffDate,
+  setDropoffDate,
+  dropoffTime,
+  setDropoffTime,
+  availableCities = [],
+}) {
+  const cities = availableCities.length > 0 ? availableCities : ['San Francisco', 'Los Angeles', 'Chicago', 'New York', 'Miami', 'Las Vegas'];
+  const times = ['07:00 AM', '08:00 AM', '09:00 AM', '10:00 AM', '11:00 AM', '12:00 PM', '01:00 PM', '02:00 PM', '03:00 PM', '04:00 PM', '05:00 PM', '06:00 PM', '07:00 PM'];
+
   return (
     <>
       <p className="radio-head">
         <span className="dot dot--on" /> Pick - Up
       </p>
       <div className="grid-2">
-        <Field label="Locations">
-          <Select placeholder="Select your city" options={['Baner, Pune', 'San Francisco', 'New York']} />
+        <Field label="Location">
+          <Select
+            value={pickupCity}
+            onChange={(e) => setPickupCity?.(e.target.value)}
+            options={cities}
+          />
         </Field>
         <Field label="Date">
-          <Select placeholder="Select your date" options={['20 July 2026', '21 July 2026']} />
+          <Input
+            type="date"
+            value={pickupDate}
+            min={new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString().split('T')[0]}
+            onChange={(e) => setPickupDate?.(e.target.value)}
+          />
         </Field>
         <Field label="Time">
-          <Select placeholder="Select your time" options={['07:00', '10:00', '13:00']} />
+          <Select
+            value={pickupTime}
+            onChange={(e) => setPickupTime?.(e.target.value)}
+            options={times}
+          />
         </Field>
       </div>
       <p className="radio-head">
-        <span className="dot" /> Drop - Off
+        <span className="dot dot--on" /> Drop - Off
       </p>
       <div className="grid-2">
-        <Field label="Locations">
-          <Select placeholder="Select your city" options={['Baner, Pune', 'San Francisco', 'New York']} />
+        <Field label="Location">
+          <Select
+            value={dropoffCity}
+            onChange={(e) => setDropoffCity?.(e.target.value)}
+            options={cities}
+          />
         </Field>
         <Field label="Date">
-          <Select placeholder="Select your date" options={['21 July 2026', '22 July 2026']} />
+          <Input
+            type="date"
+            value={dropoffDate}
+            min={pickupDate || new Date(Date.now() + 2 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]}
+            onChange={(e) => setDropoffDate?.(e.target.value)}
+          />
         </Field>
         <Field label="Time">
-          <Select placeholder="Select your time" options={['01:00', '10:00', '13:00']} />
+          <Select
+            value={dropoffTime}
+            onChange={(e) => setDropoffTime?.(e.target.value)}
+            options={times}
+          />
         </Field>
       </div>
     </>
@@ -110,14 +153,14 @@ function RentalInfoFields() {
 }
 
 /* Figma: "Rental Info" + "Payment Method" (QR) overlays */
-export function RentalInfoModal({ onClose }) {
+export function RentalInfoModal({ onClose, ...props }) {
   const [step, setStep] = useState(1);
   return (
     <Modal onClose={onClose} width={790} className="modal--grey">
       <ModalHeader title={step === 1 ? 'Rental Info' : 'Payment Method'} sub={step === 1 ? 'Please select your rental date' : 'Please enter your payment method'} onClose={onClose} />
       {step === 1 ? (
         <div className="stack">
-          <RentalInfoFields />
+          <RentalInfoFields {...props} />
           <button type="button" className="btn btn-primary btn-lg rental-next" onClick={() => setStep(2)}>
             Next
           </button>
@@ -149,6 +192,7 @@ export function Book() {
   const [done, setDone] = useState(false);
   const [rental, setRental] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [quoting, setQuoting] = useState(false);
   const [error, setError] = useState('');
 
   const currentUser = getCurrentUser() || {};
@@ -157,7 +201,11 @@ export function Book() {
   const [phone, setPhone] = useState(currentUser.phoneNumber || '');
   const [age, setAge] = useState('28');
 
+  // Rental schedule
   const [pickupCity, setPickupCity] = useState('San Francisco');
+  const [dropoffCity, setDropoffCity] = useState('San Francisco');
+  const [pickupTime, setPickupTime] = useState('10:00 AM');
+  const [dropoffTime, setDropoffTime] = useState('10:00 AM');
   const [pickupDate, setPickupDate] = useState(() => {
     const d = new Date(Date.now() + 2 * 24 * 60 * 60 * 1000);
     return d.toISOString().split('T')[0];
@@ -166,8 +214,14 @@ export function Book() {
     const d = new Date(Date.now() + 5 * 24 * 60 * 60 * 1000);
     return d.toISOString().split('T')[0];
   });
-  const [vehicleData, setVehicleData] = useState(null);
 
+  const [vehicleData, setVehicleData] = useState(null);
+  const [promoCodeInput, setPromoCodeInput] = useState('');
+  const [appliedPromo, setAppliedPromo] = useState(null);
+  const [promoMessage, setPromoMessage] = useState('');
+  const [quoteData, setQuoteData] = useState(null);
+
+  // Fetch initial vehicle data
   useEffect(() => {
     let active = true;
     const hash = window.location.hash || '';
@@ -179,7 +233,13 @@ export function Book() {
       apiRequest(`/vehicles/${vId}`)
         .then((res) => {
           if (!active) return;
-          if (res?.data) setVehicleData(res.data);
+          if (res?.data) {
+            setVehicleData(res.data);
+            if (res.data.location?.city) {
+              setPickupCity(res.data.location.city);
+              setDropoffCity(res.data.location.city);
+            }
+          }
         })
         .catch(() => {});
     } else {
@@ -187,7 +247,13 @@ export function Book() {
         .then((res) => {
           if (!active) return;
           const list = res?.data?.results || res?.data || [];
-          if (list.length > 0) setVehicleData(list[0]);
+          if (list.length > 0) {
+            setVehicleData(list[0]);
+            if (list[0].location?.city) {
+              setPickupCity(list[0].location.city);
+              setDropoffCity(list[0].location.city);
+            }
+          }
         })
         .catch(() => {});
     }
@@ -197,33 +263,113 @@ export function Book() {
     };
   }, []);
 
+  // Recalculate dynamic quote from backend API whenever vehicle, dates, or promo change
+  useEffect(() => {
+    const vId = vehicleData?._id || vehicleData?.id;
+    if (!vId || !pickupDate || !dropoffDate) return;
+
+    let active = true;
+    setQuoting(true);
+
+    const parseTimeHour = (tStr) => {
+      const match = (tStr || '').match(/(\d+):(\d+)\s*(AM|PM)?/i);
+      if (!match) return 10;
+      let hr = parseInt(match[1], 10);
+      const isPm = (match[3] || '').toUpperCase() === 'PM';
+      if (isPm && hr < 12) hr += 12;
+      if (!isPm && hr === 12) hr = 0;
+      return hr;
+    };
+
+    const pTimeHour = parseTimeHour(pickupTime);
+    const dTimeHour = parseTimeHour(dropoffTime);
+
+    const pIso = new Date(`${pickupDate}T${String(pTimeHour).padStart(2, '0')}:00:00.000Z`).toISOString();
+    const dIso = new Date(`${dropoffDate}T${String(dTimeHour).padStart(2, '0')}:00:00.000Z`).toISOString();
+
+    const quotePayload = {
+      vehicle: vId,
+      tripType: 'daily',
+      pickup: { location: pickupCity, dateTime: pIso },
+      dropoff: { location: dropoffCity, dateTime: dIso },
+      promoCode: appliedPromo || undefined,
+      nonRefundable: false,
+    };
+
+    apiRequest('/bookings/quote', {
+      method: 'POST',
+      body: quotePayload,
+    })
+      .then((res) => {
+        if (!active) return;
+        if (res?.data?.pricing) {
+          setQuoteData(res.data.pricing);
+        }
+      })
+      .catch((err) => {
+        if (!active) return;
+        // Fallback live calculate if quote fails (e.g. minimum hours restriction)
+        const d1 = new Date(pickupDate);
+        const d2 = new Date(dropoffDate);
+        const days = Math.max(1, Math.round((d2 - d1) / (24 * 3600 * 1000)));
+        const dailyRate = vehicleData?.pricing?.dailyRate || 100;
+        const subtotal = Math.round(dailyRate * days);
+        const taxes = Math.round(subtotal * 0.12 * 100) / 100;
+        const total = Math.round((subtotal + taxes) * 100) / 100;
+        setQuoteData({
+          numberOfDays: days,
+          subtotal,
+          taxesAndFees: taxes,
+          totalAmount: total,
+          distanceIncluded: (vehicleData?.pricing?.distanceIncludedPerDay || 200) * days,
+          savings: Math.round(subtotal * ((vehicleData?.pricing?.dailyDiscountPercent || 0) / 100)),
+        });
+      })
+      .finally(() => {
+        if (active) setQuoting(false);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [vehicleData, pickupDate, dropoffDate, pickupTime, dropoffTime, pickupCity, dropoffCity, appliedPromo]);
+
+  const handleApplyPromo = () => {
+    if (!promoCodeInput.trim()) return;
+    setAppliedPromo(promoCodeInput.trim().toUpperCase());
+    setPromoMessage(`Promo code "${promoCodeInput.trim().toUpperCase()}" applied!`);
+  };
+
   const handleBookTrip = async () => {
     setError('');
     setLoading(true);
 
     try {
       const vId = vehicleData?._id || vehicleData?.id;
-
       if (!vId) {
         throw new Error('Missing vehicle id for booking.');
       }
+
+      const pIso = new Date(`${pickupDate}T10:00:00.000Z`).toISOString();
+      const dIso = new Date(`${dropoffDate}T10:00:00.000Z`).toISOString();
 
       const payload = {
         vehicle: vId,
         tripType: 'daily',
         pickup: {
           location: pickupCity || 'San Francisco International Airport',
-          dateTime: new Date(`${pickupDate}T10:00:00.000Z`).toISOString(),
+          dateTime: pIso,
         },
         dropoff: {
-          location: pickupCity || 'San Francisco International Airport',
-          dateTime: new Date(`${dropoffDate}T10:00:00.000Z`).toISOString(),
+          location: dropoffCity || 'San Francisco International Airport',
+          dateTime: dIso,
         },
         primaryDriver: {
           name: `${firstName} ${lastName}`.trim() || 'John Doe',
           isSameAsAccountHolder: true,
         },
         seatsRequested: vehicleData?.seats || 2,
+        promoCode: appliedPromo || undefined,
         nonRefundable: false,
       };
 
@@ -234,7 +380,6 @@ export function Book() {
 
       const newBookingId = bookingRes?.data?._id || bookingRes?.data?.id;
 
-      // Automatically charge booking using card / cash method if valid ID returned
       if (newBookingId) {
         try {
           await apiRequest('/payments/charge', {
@@ -242,7 +387,7 @@ export function Book() {
             body: {
               bookingId: newBookingId,
               method: 'card',
-              paymentMethodId: 'pm_card_visa', // standard Stripe test payment token
+              paymentMethodId: 'pm_card_visa',
             },
           });
         } catch (payErr) {
@@ -259,6 +404,14 @@ export function Book() {
     }
   };
 
+  const carName = vehicleData
+    ? `${vehicleData.year || ''} ${vehicleData.make || ''} ${vehicleData.model || ''}`.trim()
+    : 'Vehicle Checkout';
+
+  const host = vehicleData?.host;
+  const hostName = host ? `${host.firstName || ''} ${host.lastName || ''}`.trim() : 'Drive Concierge';
+  const hostCity = host?.city || vehicleData?.location?.city || 'Available';
+  const hostPhoto = host?.profilePhotoUrl || img('chauffeur.jpg');
 
   return (
     <Layout role="user">
@@ -320,11 +473,24 @@ export function Book() {
               <div className="panel__head">
                 <div>
                   <h3>Rental Info</h3>
-                  <small>Please select your rental date</small>
+                  <small>Please select your rental date and destination</small>
                 </div>
                 <span className="step-tag">Step 2 of 3</span>
               </div>
-              <RentalInfoFields />
+              <RentalInfoFields
+                pickupCity={pickupCity}
+                setPickupCity={setPickupCity}
+                dropoffCity={dropoffCity}
+                setDropoffCity={setDropoffCity}
+                pickupDate={pickupDate}
+                setPickupDate={setPickupDate}
+                dropoffDate={dropoffDate}
+                setDropoffDate={setDropoffDate}
+                pickupTime={pickupTime}
+                setPickupTime={setPickupTime}
+                dropoffTime={dropoffTime}
+                setDropoffTime={setDropoffTime}
+              />
             </section>
 
             <section className="panel">
@@ -342,88 +508,109 @@ export function Book() {
             <button
               type="button"
               className="btn btn-primary btn-block btn-lg"
-              disabled={loading}
+              disabled={loading || quoting}
               onClick={handleBookTrip}
             >
-              {loading ? 'Processing Reservation...' : 'Book trip'}
+              {loading ? 'Processing Reservation...' : `Book trip • $${quoteData?.totalAmount ?? (vehicleData?.pricing?.dailyRate || 100)}`}
             </button>
           </div>
 
-
           <aside className="panel summary">
             <h3>Rental Summary</h3>
-            <small>Prices may change depending on the length of the rental and the price of your rental car.</small>
+            <small>Prices are calculated in real-time according to trip dates and vehicle rates.</small>
             <div className="summary__car">
               <img
-                src={vehicleData?.photos?.[0]?.url || img('gtr-blue.jpg')}
-                alt={vehicleData?.model || 'Nissan GT-R'}
+                src={vehicleData?.photos?.[0]?.url || (typeof vehicleData?.photos?.[0] === 'string' ? vehicleData.photos[0] : img('gtr-blue.jpg'))}
+                alt={carName}
               />
               <div>
-                <h2>{vehicleData ? `${vehicleData.year || ''} ${vehicleData.make || ''} ${vehicleData.model || ''}`.trim() : 'Nissan GT – R'}</h2>
+                <h2>{carName}</h2>
                 <span className="summary__rating">
-                  <Stars value={4} size={14} /> {vehicleData?.ratingsCount ? `${vehicleData.ratingsCount}+ Reviews` : '440+ Reviewer'}
+                  <Stars value={Math.round(vehicleData?.ratingsAverage || 5)} size={14} />{' '}
+                  {vehicleData?.ratingsCount ? `${vehicleData.ratingsCount} Reviews` : 'Verified Fleet'}
                 </span>
               </div>
             </div>
             <div className="summary__dates">
               <span>
-                <FiCalendar /> {pickupDate} at 10:00 AM
+                <FiCalendar /> {pickupDate} at {pickupTime}
               </span>
               <span className="summary__dash">- - - - - - - - ›</span>
               <span>
-                <FiCalendar /> {dropoffDate} at 10:00 AM
+                <FiCalendar /> {dropoffDate} at {dropoffTime}
               </span>
             </div>
             <p className="summary__loc">
-              <FiMapPin /> San Francisco International Airport
+              <FiMapPin /> {pickupCity}
             </p>
             <dl className="summary__lines">
               <div>
-                <dt className="u">Subtotal</dt>
-                <dd>$231.74</dd>
+                <dt className="u">Subtotal ({quoteData?.numberOfDays || 1} day{(quoteData?.numberOfDays || 1) > 1 ? 's' : ''})</dt>
+                <dd>${quoteData?.subtotal != null ? quoteData.subtotal.toFixed(2) : ((vehicleData?.pricing?.dailyRate || 100)).toFixed(2)}</dd>
               </div>
               <div>
-                <dt className="u">Taxes &amp; permit fees</dt>
-                <dd>$33.86</dd>
+                <dt className="u">Taxes &amp; fees</dt>
+                <dd>${quoteData?.taxesAndFees != null ? quoteData.taxesAndFees.toFixed(2) : ((vehicleData?.pricing?.dailyRate || 100) * 0.12).toFixed(2)}</dd>
               </div>
+              {quoteData?.promoDiscount > 0 && (
+                <div>
+                  <dt className="u" style={{ color: '#16a34a' }}>Promo discount</dt>
+                  <dd style={{ color: '#16a34a' }}>-${quoteData.promoDiscount.toFixed(2)}</dd>
+                </div>
+              )}
               <div>
                 <dt>
                   Distance included
-                  <small>$0.21 / mile fee will be charged for miles driven over this allotment.</small>
+                  <small>${vehicleData?.pricing?.extraMileFee || 0.25} / mile fee for miles driven over this allotment.</small>
                 </dt>
-                <dd>1,050 miles</dd>
+                <dd>{quoteData?.distanceIncluded ? `${quoteData.distanceIncluded.toLocaleString()} miles` : '600 miles'}</dd>
               </div>
               <div className="summary__total">
                 <dt>Trip total</dt>
-                <dd>$265.60</dd>
+                <dd>${quoteData?.totalAmount != null ? quoteData.totalAmount.toFixed(2) : (((vehicleData?.pricing?.dailyRate || 100) * 1.12)).toFixed(2)}</dd>
               </div>
             </dl>
-            <div className="saving">
-              <TbTag size={26} />
-              <div>
-                <b>You’re saving $35</b>
-                <small>3+ day discount and non-refundable rate applied.</small>
+
+            {quoteData?.savings > 0 && (
+              <div className="saving">
+                <TbTag size={26} />
+                <div>
+                  <b>You’re saving ${quoteData.savings.toFixed(2)}</b>
+                  <small>Multi-day discount or special promotion applied.</small>
+                </div>
               </div>
-            </div>
+            )}
+
             <div className="chauffeur-mini">
-              <h4>Chauffeur</h4>
+              <h4>Host / Concierge</h4>
               <div>
-                <img src={img('chauffeur.jpg')} alt="" />
-                <b>Raj Sharma</b>
-                <small>Pune</small>
-                <Stars value={4} size={14} />
+                <img src={hostPhoto} alt={hostName} />
+                <b>{hostName}</b>
+                <small>{hostCity}</small>
+                <Stars value={5} size={14} />
               </div>
             </div>
+
             <div className="promo">
-              <input placeholder="Apply promo code" />
-              <button type="button">Apply now</button>
+              <input
+                placeholder="Apply promo code"
+                value={promoCodeInput}
+                onChange={(e) => setPromoCodeInput(e.target.value)}
+              />
+              <button type="button" onClick={handleApplyPromo}>Apply now</button>
             </div>
+            {promoMessage && (
+              <p style={{ fontSize: '13px', color: '#16a34a', margin: '4px 0 10px', fontWeight: 500 }}>
+                {promoMessage}
+              </p>
+            )}
+
             <div className="summary__grand">
               <div>
                 <b>Total Rental Price</b>
-                <small>Overall price and includes rental discount</small>
+                <small>Overall price with taxes and fees included</small>
               </div>
-              <strong>$265.60</strong>
+              <strong>${quoteData?.totalAmount != null ? quoteData.totalAmount.toFixed(2) : (((vehicleData?.pricing?.dailyRate || 100) * 1.12)).toFixed(2)}</strong>
             </div>
             <button type="button" className="btn-text summary__alt" onClick={() => setRental(true)}>
               Prefer to pay in the app? Open rental info
@@ -431,7 +618,15 @@ export function Book() {
           </aside>
         </div>
       </div>
-      {done && <SuccessModal big onClose={() => setDone(false)} onDone={() => navigate('/app/booking-confirmed')} />}
+      {done && (
+        <SuccessModal
+          onClose={() => setDone(false)}
+          onDone={() => {
+            setDone(false);
+            navigate('/app/bookings');
+          }}
+        />
+      )}
       {rental && <RentalInfoModal onClose={() => setRental(false)} />}
     </Layout>
   );
@@ -609,23 +804,54 @@ export function ReviewModal({ onClose }) {
 }
 
 function BookingRow({ booking, previous, onReview }) {
-  const carName = booking?.vehicle
-    ? `${booking.vehicle.year || ''} ${booking.vehicle.make || ''} ${booking.vehicle.model || ''}`.trim()
-    : 'Nissan GT – R';
-  const carImg = booking?.vehicle?.photos?.[0]?.url || img('booking-car.jpg');
-  const pickupDate = booking?.pickup?.dateTime ? new Date(booking.pickup.dateTime).toLocaleDateString() : '12 April 2025';
-  const dropoffDate = booking?.dropoff?.dateTime ? new Date(booking.dropoff.dateTime).toLocaleDateString() : '13 April 2025';
-  const pickupLoc = booking?.pickup?.location || 'Baner, Pune';
-  const dropoffLoc = booking?.dropoff?.location || 'Baner, Pune';
-  const total = booking?.pricing?.total != null ? `$${booking.pricing.total}` : '$80';
+  if (!booking) return null;
+
+  const v = booking.vehicle;
+  const carName = v
+    ? `${v.year || ''} ${v.make || ''} ${v.model || ''}`.trim()
+    : 'Vehicle Reservation';
+
+  const primaryPhoto =
+    v?.photos?.find((p) => p.isPrimary)?.url ||
+    v?.photos?.[0]?.url ||
+    (typeof v?.photos?.[0] === 'string' ? v.photos[0] : null) ||
+    img('booking-car.jpg');
+
+  const formatDate = (dt) => {
+    if (!dt) return 'N/A';
+    const d = new Date(dt);
+    return isNaN(d.getTime()) ? String(dt) : d.toLocaleDateString('en-US', { month: 'numeric', day: 'numeric', year: 'numeric' });
+  };
+
+  const pickupDate = formatDate(booking?.pickup?.dateTime);
+  const dropoffDate = formatDate(booking?.dropoff?.dateTime);
+  const pickupLoc = booking?.pickup?.location || v?.location?.city || 'Selected Location';
+  const dropoffLoc = booking?.dropoff?.location || booking?.pickup?.location || v?.location?.city || 'Selected Location';
+
+  const totalAmount =
+    booking?.pricing?.totalAmount != null
+      ? `$${booking.pricing.totalAmount}`
+      : booking?.pricing?.total != null
+        ? `$${booking.pricing.total}`
+        : '$0';
+
+  const ratingAvg = v?.ratingsAverage != null ? v.ratingsAverage : 5;
+  const ratingCount = v?.ratingsCount != null ? v.ratingsCount : 0;
+
+  // Real host or assigned chauffeur info
+  const host = booking.host;
+  const chauffeur = booking.chauffeurAssigned;
+  const contactName = chauffeur?.name || (host ? `${host.firstName || ''} ${host.lastName || ''}`.trim() : null) || 'Drive Concierge';
+  const contactLocation = host?.city || (v?.location?.city ? v.location.city : 'Available');
+  const contactPhoto = host?.profilePhotoUrl || img('chauffeur.jpg');
 
   return (
     <div className="booking-row">
       <div className="booking-row__car">
-        <img src={carImg} alt={carName} />
+        <img src={primaryPhoto} alt={carName} />
         <b>{carName}</b>
         <span>
-          <Stars value={4} size={14} /> 440+ Reviewer
+          <Stars value={Math.round(ratingAvg)} size={14} /> {ratingCount > 0 ? `${ratingCount} Reviews` : 'Verified'}
         </span>
       </div>
       <div className="booking-row__box">
@@ -637,28 +863,36 @@ function BookingRow({ booking, previous, onReview }) {
       </div>
       <div className="booking-row__box">
         <h4>Booking Detail</h4>
-        <p>Status: <span style={{ textTransform: 'capitalize', fontWeight: 600 }}>{booking?.status || 'Active'}</span></p>
-        <p>Reference: {booking?.referenceCode || '#BK-9761'}</p>
-        <p>Total Amount: {total}</p>
+        <p>Status: <span style={{ textTransform: 'capitalize', fontWeight: 600 }}>{booking?.status || 'Pending'}</span></p>
+        <p>Reference: {booking?.referenceCode || (booking?._id ? `#BK-${booking._id.slice(-4).toUpperCase()}` : '#BK-0000')}</p>
+        <p>Total Amount: {totalAmount}</p>
       </div>
       <div className="booking-row__chauffeur">
-        <h4>Assigned Chauffeur</h4>
+        <h4>{chauffeur?.name ? 'Assigned Chauffeur' : 'Host / Concierge'}</h4>
         <div>
-          <img src={img('chauffeur.jpg')} alt="" />
+          <img src={contactPhoto} alt={contactName} />
           <div>
-            <b>Raj Sharma</b>
-            <small>Pune</small>
-            <Stars value={4} size={14} />
+            <b>{contactName}</b>
+            <small>{contactLocation}</small>
+            <Stars value={5} size={14} />
           </div>
         </div>
       </div>
       <div className="booking-row__actions">
         {previous ? (
           <>
-            <button type="button" className="act act--orange" onClick={() => navigate('/app/book')}>
+            <button
+              type="button"
+              className="act act--orange"
+              onClick={() => navigate(v?._id ? `/app/book?vehicle=${v._id}` : '/app/cars')}
+            >
               <FiRefreshCw /> Rebook Trip
             </button>
-            <button type="button" className="act">
+            <button
+              type="button"
+              className="act"
+              onClick={() => alert(`Invoice for Booking ${booking.referenceCode || booking._id} is being generated.`)}
+            >
               <FiDownload /> Download Invoice
             </button>
             <button type="button" className="act" onClick={onReview}>
@@ -667,7 +901,15 @@ function BookingRow({ booking, previous, onReview }) {
           </>
         ) : (
           <>
-            <button type="button" className="act act--lg">
+            <button
+              type="button"
+              className="act act--lg"
+              onClick={() => {
+                const phone = chauffeur?.phone || host?.phoneNumber;
+                if (phone) window.open(`tel:${phone}`);
+                else alert('Contact number will be available closer to pickup time.');
+              }}
+            >
               <FiPhone /> Call
             </button>
             <button type="button" className="act act--lg" onClick={() => navigate('/app/inbox')}>
@@ -713,28 +955,32 @@ export function Bookings() {
       <div className="container bookings">
         <BackLink to="/app">Back to Home</BackLink>
         <h2>Upcoming Bookings</h2>
-        {loading && <p style={{ color: '#888', padding: '10px 0' }}>Checking your reservation records...</p>}
-        {upcoming.length > 0 ? (
+        {loading ? (
+          <div style={{ padding: '24px', background: '#f8fafc', borderRadius: '12px', border: '1px solid #e2e8f0', margin: '16px 0', color: '#64748b' }}>
+            Loading your bookings...
+          </div>
+        ) : upcoming.length > 0 ? (
           upcoming.map((b) => <BookingRow key={b._id || b.id} booking={b} />)
         ) : (
-          <>
-            <div className="month-bar">Current Month</div>
-            <BookingRow />
-          </>
+          <div style={{ background: '#f8fafc', padding: '36px 20px', textAlign: 'center', borderRadius: '12px', border: '1px solid #e2e8f0', margin: '16px 0 32px' }}>
+            <p style={{ color: '#334155', fontWeight: 600, fontSize: '18px', margin: 0 }}>No upcoming trips scheduled</p>
+            <p style={{ color: '#64748b', fontSize: '14px', margin: '8px 0 16px' }}>Ready for your next journey? Browse our luxury collection and book your ride today.</p>
+            <button type="button" className="btn btn-primary" onClick={() => navigate('/app/cars')}>
+              Explore Vehicles
+            </button>
+          </div>
         )}
+
         <h2>Previous Bookings</h2>
-        {past.length > 0 ? (
+        {!loading && past.length > 0 ? (
           past.map((b) => (
             <BookingRow key={b._id || b.id} booking={b} previous onReview={() => setReview(true)} />
           ))
-        ) : (
-          ['November 2024', 'October 2024'].map((m) => (
-            <div key={m}>
-              <div className="month-bar">{m}</div>
-              <BookingRow previous onReview={() => setReview(true)} />
-            </div>
-          ))
-        )}
+        ) : !loading ? (
+          <div style={{ background: '#f8fafc', padding: '28px 20px', textAlign: 'center', borderRadius: '12px', border: '1px solid #e2e8f0', margin: '16px 0' }}>
+            <p style={{ color: '#64748b', fontSize: '14px', margin: 0 }}>You have no completed or past bookings yet.</p>
+          </div>
+        ) : null}
       </div>
       {review && <ReviewModal onClose={() => setReview(false)} />}
     </Layout>

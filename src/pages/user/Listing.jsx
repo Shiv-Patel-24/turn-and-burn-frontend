@@ -2,16 +2,10 @@ import { useEffect, useState } from 'react';
 import Layout from '../../components/Layout';
 import { SearchPanel } from '../../components/Search';
 import { CarCard, Pagination } from '../../components/Cards';
-import { carAt, formatVehicle } from '../../data';
+import { formatVehicle } from '../../data';
 import { navigate } from '../../router';
 import { apiRequest } from '../../lib/api';
-
-const groups = [
-  { title: 'TYPE', items: ['Sport (10)', 'SUV (12)', 'MPV (16)', 'Sedan (20)', 'Coupe (14)', 'Hatchback (14)'], on: [0, 1] },
-  { title: 'CHAUFFEUR', items: ['Yes', 'No'], on: [0] },
-  { title: 'CAPACITY', items: ['2 Person (10)', '4 Person (14)', '6 Person (12)', '8 or More (16)'], on: [0, 3] },
-  { title: 'DURATION', items: ['1 Day', '3 Day', '7 Day', '8 or More Day’s'], on: [0, 3] },
-];
+import { useUI } from '../../ui';
 
 function DarkCheck({ checked, onChange, children }) {
   return (
@@ -25,13 +19,23 @@ function DarkCheck({ checked, onChange, children }) {
 
 /* Figma: "MacBook Pro 14 - 7" — car listing with filter sidebar */
 export function Listing() {
+  const { open } = useUI();
   const [period, setPeriod] = useState('DAILY');
-  const [state, setState] = useState(() => groups.map((g) => g.items.map((_, i) => false)));
+  const [selectedStyles, setSelectedStyles] = useState([]);
+  const [selectedSeats, setSelectedSeats] = useState(null);
+  const [chauffeur, setChauffeur] = useState(null);
+  const [duration, setDuration] = useState(null);
+  const [filterMeta, setFilterMeta] = useState(null);
   const [price, setPrice] = useState(300);
+  const [priceRange, setPriceRange] = useState({ min: 20, max: 500 });
   const [vehicles, setVehicles] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [page, setPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
+  const [totalCount, setTotalCount] = useState(0);
+  const pageSize = 9;
 
-  // Read initial search criteria from URL hash query params (e.g. #/app/cars?city=Los+Angeles)
+  // Read initial search criteria from URL hash query params (e.g. #/app/cars?city=Los+Angeles&style=Sedan)
   const getHashQueryParams = () => {
     const hash = window.location.hash || '';
     const qIndex = hash.indexOf('?');
@@ -43,6 +47,35 @@ export function Listing() {
   const [pickupDateFilter, setPickupDateFilter] = useState(initialParams.get('pickupDate') || '');
   const [dropoffDateFilter, setDropoffDateFilter] = useState(initialParams.get('dropoffDate') || '');
 
+  // Reset to page 1 whenever any filter changes
+  useEffect(() => {
+    setPage(1);
+  }, [selectedStyles, selectedSeats, price, period, cityFilter, pickupDateFilter, dropoffDateFilter]);
+
+  // Fetch dynamic filter metadata from backend (/vehicles/filters)
+  useEffect(() => {
+    let active = true;
+    apiRequest('/vehicles/filters')
+      .then((res) => {
+        if (!active) return;
+        const meta = res?.data;
+        if (meta) {
+          setFilterMeta(meta);
+          if (meta.price?.max) {
+            setPriceRange({ min: Math.floor(meta.price.min || 20), max: Math.ceil(meta.price.max || 500) });
+            setPrice((prev) => (prev === 300 ? Math.ceil(meta.price.max) : prev));
+          }
+        }
+      })
+      .catch((err) => {
+        console.warn('Could not fetch filter metadata:', err.message);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, []);
+
   // Listen for hash changes to keep search filter criteria synced
   useEffect(() => {
     const handleHashChange = () => {
@@ -50,35 +83,28 @@ export function Listing() {
       if (p.has('city')) setCityFilter(p.get('city') || '');
       if (p.has('pickupDate')) setPickupDateFilter(p.get('pickupDate') || '');
       if (p.has('dropoffDate')) setDropoffDateFilter(p.get('dropoffDate') || '');
+      if (p.has('style')) {
+        const s = p.get('style');
+        if (s) setSelectedStyles([s]);
+      }
     };
     window.addEventListener('hashchange', handleHashChange);
     return () => window.removeEventListener('hashchange', handleHashChange);
   }, []);
 
-  // Map chosen styles, capacity, price, and city/dates to backend query params
+  // Map chosen styles, capacity, price, page, and city/dates to backend query params
   useEffect(() => {
     let active = true;
     setLoading(true);
 
     const timer = setTimeout(() => {
-      const typeItems = ['Sport Car', 'SUV', 'MPV', 'Sedan', 'Coupe', 'Hatchback'];
-      const selectedStyles = [];
-      state[0]?.forEach((isSelected, idx) => {
-        if (isSelected && typeItems[idx]) selectedStyles.push(typeItems[idx]);
-      });
-
-      const capacityMap = [2, 4, 6, 8];
-      let selectedSeats = null;
-      state[2]?.forEach((isSelected, idx) => {
-        if (isSelected && capacityMap[idx]) selectedSeats = capacityMap[idx];
-      });
-
       const params = new URLSearchParams();
-      params.set('limit', '20');
+      params.set('limit', String(pageSize));
+      params.set('page', String(page));
       if (cityFilter.trim()) params.set('city', cityFilter.trim());
       if (price > 0) params.set('maxPrice', String(price));
       if (selectedStyles.length > 0) params.set('style', selectedStyles[0]);
-      if (selectedSeats) params.set('seats', String(selectedSeats));
+      if (selectedSeats != null) params.set('seats', String(selectedSeats));
       if (pickupDateFilter) {
         const pd = new Date(pickupDateFilter);
         if (!isNaN(pd.getTime())) params.set('pickupDate', pd.toISOString());
@@ -88,11 +114,36 @@ export function Listing() {
         if (!isNaN(dd.getTime())) params.set('dropoffDate', dd.toISOString());
       }
 
-      apiRequest(`/vehicles/search?${params.toString()}`)
-        .then((res) => {
+      Promise.all([
+        apiRequest(`/vehicles/search?${params.toString()}`),
+        localStorage.getItem('turn_and_burn_access_token')
+          ? apiRequest('/vehicles/favorites/mine').catch(() => ({ data: [] }))
+          : Promise.resolve({ data: [] }),
+      ])
+        .then(([searchRes, favRes]) => {
           if (!active) return;
-          const list = res?.data?.results || res?.data || [];
-          setVehicles(list);
+          const list = searchRes?.data?.results || searchRes?.data || [];
+          const total = typeof searchRes?.data?.total === 'number' ? searchRes.data.total : list.length;
+          const pages = typeof searchRes?.data?.pages === 'number'
+            ? searchRes.data.pages
+            : Math.ceil(total / pageSize);
+
+          const favList = Array.isArray(favRes?.data) ? favRes.data : [];
+          const favIdSet = new Set(
+            favList.map((f) => String(f?.vehicle?._id || f?.vehicle?.id || f?._id || f?.id))
+          );
+
+          const enrichedList = list.map((v) => {
+            const vId = String(v?._id || v?.id);
+            return {
+              ...v,
+              isFavorite: favIdSet.has(vId) || Boolean(v.isFavorite),
+            };
+          });
+
+          setVehicles(enrichedList);
+          setTotalCount(total);
+          setTotalPages(Math.max(1, pages));
         })
         .catch((err) => {
           console.warn('Filtered vehicle fetch failed, using fallback:', err.message);
@@ -106,25 +157,67 @@ export function Listing() {
       active = false;
       clearTimeout(timer);
     };
-  }, [state, price, period, cityFilter, pickupDateFilter, dropoffDateFilter]);
+  }, [selectedStyles, selectedSeats, price, period, page, cityFilter, pickupDateFilter, dropoffDateFilter]);
 
-  const order = [2, 1, 0, 3, 4, 5, 2, 1, 0, 3, 4, 5];
-  const displayCars = vehicles.length > 0
-    ? vehicles.map((v, i) => formatVehicle(v, i))
-    : order.map((i) => carAt(i));
+  const displayCars = (vehicles || []).map((v, i) => formatVehicle(v, i));
 
   const handleToggleFavorite = async (car, isLiked) => {
-    if (!car?.id) return;
+    const token = localStorage.getItem('turn_and_burn_access_token');
+    if (!token) {
+      open('signup');
+      return;
+    }
+    const targetId = car?.id || car?._id;
+    if (!targetId) return;
     try {
       if (isLiked) {
-        await apiRequest(`/vehicles/${car.id}/favorite`, { method: 'POST' });
+        await apiRequest(`/vehicles/${targetId}/favorite`, { method: 'POST' });
       } else {
-        await apiRequest(`/vehicles/${car.id}/favorite`, { method: 'DELETE' });
+        await apiRequest(`/vehicles/${targetId}/favorite`, { method: 'DELETE' });
       }
+      setVehicles((prev) =>
+        prev.map((v) =>
+          String(v._id || v.id) === String(targetId)
+            ? { ...v, isFavorite: isLiked }
+            : v
+        )
+      );
     } catch (err) {
       console.warn('Could not update favorite status:', err.message);
     }
   };
+
+  const handleStyleToggle = (styleName) => {
+    setSelectedStyles((prev) =>
+      prev.includes(styleName) ? prev.filter((s) => s !== styleName) : [styleName]
+    );
+  };
+
+  const handleSeatToggle = (seatsNum) => {
+    setSelectedSeats((prev) => (prev === seatsNum ? null : seatsNum));
+  };
+
+  // Dynamic style list with real counts from backend
+  const availableStyles = (filterMeta?.styles && filterMeta.styles.length > 0)
+    ? filterMeta.styles
+    : [
+        { value: 'Sport Car', count: 0 },
+        { value: 'SUV', count: 0 },
+        { value: 'MPV', count: 0 },
+        { value: 'Sedan', count: 0 },
+        { value: 'Coupe', count: 0 },
+        { value: 'Hatchback', count: 0 }
+      ];
+
+  // Dynamic capacity buckets with real counts from backend
+  const availableCapacities = (filterMeta?.seatBuckets && filterMeta.seatBuckets.length > 0)
+    ? filterMeta.seatBuckets
+    : [
+        { label: '2 Person', seats: 2, count: 0 },
+        { label: '4 Person', seats: 4, count: 0 },
+        { label: '6 Person', seats: 6, count: 0 },
+        { label: '8 or More', seats: 8, count: 0 }
+      ];
 
   return (
     <Layout role="user">
@@ -138,22 +231,68 @@ export function Listing() {
               {p}
             </label>
           ))}
-          {groups.map((g, gi) => (
-            <div key={g.title}>
-              <h6>{g.title}</h6>
-              {g.items.map((it, ii) => (
-                <DarkCheck
-                  key={it}
-                  checked={state[gi][ii]}
-                  onChange={(v) => setState((s) => s.map((row, r) => (r === gi ? row.map((c, ci) => (ci === ii ? v : c)) : row)))}
-                >
-                  {it}
-                </DarkCheck>
-              ))}
-            </div>
-          ))}
+
+          <div>
+            <h6>TYPE</h6>
+            {availableStyles.map((item) => (
+              <DarkCheck
+                key={item.value}
+                checked={selectedStyles.includes(item.value)}
+                onChange={() => handleStyleToggle(item.value)}
+              >
+                {item.value} ({item.count})
+              </DarkCheck>
+            ))}
+          </div>
+
+          <div>
+            <h6>CHAUFFEUR</h6>
+            {['Yes', 'No'].map((c) => (
+              <DarkCheck
+                key={c}
+                checked={chauffeur === c}
+                onChange={() => setChauffeur((prev) => (prev === c ? null : c))}
+              >
+                {c}
+              </DarkCheck>
+            ))}
+          </div>
+
+          <div>
+            <h6>CAPACITY</h6>
+            {availableCapacities.map((item) => (
+              <DarkCheck
+                key={item.label}
+                checked={selectedSeats === item.seats}
+                onChange={() => handleSeatToggle(item.seats)}
+              >
+                {item.label} ({item.count})
+              </DarkCheck>
+            ))}
+          </div>
+
+          <div>
+            <h6>DURATION</h6>
+            {['1 Day', '3 Day', '7 Day', '8 or More Day’s'].map((d) => (
+              <DarkCheck
+                key={d}
+                checked={duration === d}
+                onChange={() => setDuration((prev) => (prev === d ? null : d))}
+              >
+                {d}
+              </DarkCheck>
+            ))}
+          </div>
+
           <h6>PRICE</h6>
-          <input className="range" type="range" min={20} max={500} value={price} onChange={(e) => setPrice(+e.target.value)} />
+          <input
+            className="range"
+            type="range"
+            min={priceRange.min}
+            max={priceRange.max > priceRange.min ? priceRange.max : 500}
+            value={price}
+            onChange={(e) => setPrice(+e.target.value)}
+          />
           <p className="filters__price">Max. ${price.toFixed(2)}</p>
         </aside>
         <section className="listing__main">
@@ -171,19 +310,50 @@ export function Listing() {
               setDropoffDateFilter(dropoffDate || '');
             }}
           />
-          {loading && <p style={{ color: '#aaa', padding: '10px 0' }}>Loading vehicles from server...</p>}
           <div className="car-grid car-grid--sm">
-            {displayCars.map((c, k) => (
-              <CarCard
-                key={c.id || k}
-                car={c}
-                size="sm"
-                onRent={() => navigate(`/app/car/${c.id || 1}`)}
-                onToggleFavorite={handleToggleFavorite}
-              />
-            ))}
+            {loading ? (
+              Array.from({ length: 6 }).map((_, idx) => (
+                <div className="car-card-skeleton" key={idx}>
+                  <div className="skeleton-thumb skeleton-shimmer" />
+                  <div className="skeleton-title skeleton-shimmer" />
+                  <div className="skeleton-price skeleton-shimmer" />
+                  <div className="skeleton-specs">
+                    <div className="skeleton-spec-item skeleton-shimmer" />
+                    <div className="skeleton-spec-item skeleton-shimmer" />
+                    <div className="skeleton-spec-item skeleton-shimmer" />
+                    <div className="skeleton-spec-item skeleton-shimmer" />
+                  </div>
+                  <div className="skeleton-btn skeleton-shimmer" />
+                </div>
+              ))
+            ) : displayCars.length > 0 ? (
+              displayCars.map((c, k) => (
+                <CarCard
+                  key={c.id || k}
+                  car={c}
+                  size="sm"
+                  onRent={() => navigate(`/app/car/${c.id || 1}`)}
+                  onToggleFavorite={handleToggleFavorite}
+                />
+              ))
+            ) : (
+              <div style={{ gridColumn: '1 / -1', padding: '60px 20px', textAlign: 'center', color: '#64748b' }}>
+                <p style={{ fontSize: '18px', fontWeight: 600, color: '#334155' }}>No vehicles match your search criteria.</p>
+                <p style={{ fontSize: '14px', marginTop: '6px' }}>Try adjusting your filters, location, or dates to find available cars.</p>
+              </div>
+            )}
           </div>
-          <Pagination dark />
+          {!loading && totalPages > 1 && (
+            <Pagination
+              dark
+              page={page}
+              totalPages={totalPages}
+              onPageChange={(p) => {
+                setPage(p);
+                window.scrollTo({ top: 0, behavior: 'smooth' });
+              }}
+            />
+          )}
         </section>
       </div>
     </Layout>
@@ -215,50 +385,82 @@ export function Favorites() {
   }, []);
 
   const handleToggleFavorite = async (car, isLiked) => {
-    if (!car?.id) return;
+    const targetId = car?.id || car?._id;
+    if (!targetId) return;
     try {
       if (isLiked) {
-        await apiRequest(`/vehicles/${car.id}/favorite`, { method: 'POST' });
+        await apiRequest(`/vehicles/${targetId}/favorite`, { method: 'POST' });
       } else {
-        await apiRequest(`/vehicles/${car.id}/favorite`, { method: 'DELETE' });
-        setFavorites((prev) => prev.filter((item) => (item._id || item.id) !== car.id));
+        await apiRequest(`/vehicles/${targetId}/favorite`, { method: 'DELETE' });
+        setFavorites((prev) =>
+          prev.filter((item) => {
+            const v = item?.vehicle || item;
+            const itemId = String(v?._id || v?.id || item?._id || item?.id);
+            return itemId !== String(targetId);
+          })
+        );
       }
     } catch (err) {
       console.warn('Could not toggle favorite:', err.message);
     }
   };
 
+  const [favPage, setFavPage] = useState(1);
+  const favPageSize = 8;
   const hasFavorites = favorites.length > 0;
-  const displayFavs = hasFavorites
-    ? favorites.map((v, i) => ({ ...formatVehicle(v?.vehicle || v, i), isFavorite: true }))
-    : [0, 1, 2, 3, 4, 5].map((i) => ({ ...carAt(i), isFavorite: false }));
+  const totalFavPages = Math.ceil(favorites.length / favPageSize);
+  const paginatedFavorites = favorites.slice((favPage - 1) * favPageSize, favPage * favPageSize);
+  const displayFavs = paginatedFavorites.map((v, i) => ({ ...formatVehicle(v?.vehicle || v, i), isFavorite: true }));
 
   return (
     <Layout role="user">
       <div className="container favorites">
         <SearchPanel withTime={false} ctaTo="/app/cars" />
-        {loading && <p style={{ color: '#666', padding: '10px 0' }}>Loading your favorite vehicles...</p>}
-        {!hasFavorites && !loading && (
-          <div style={{ background: '#f8fafc', padding: '16px 20px', borderRadius: '12px', border: '1px solid #e2e8f0', marginBottom: '24px' }}>
-            <p style={{ color: '#334155', fontWeight: 600, fontSize: '15px', margin: 0 }}>You haven't added any favorite vehicles yet!</p>
-            <p style={{ color: '#64748b', fontSize: '14px', margin: '4px 0 0' }}>
-              Explore our fleet below and click the heart icon on any vehicle to save it to your wishlist.
+        {loading ? (
+          <div className="car-grid car-grid--4" style={{ marginTop: '24px' }}>
+            {Array.from({ length: 4 }).map((_, idx) => (
+              <div className="car-card-skeleton" key={idx}>
+                <div className="skeleton-thumb skeleton-shimmer" />
+                <div className="skeleton-title skeleton-shimmer" />
+                <div className="skeleton-price skeleton-shimmer" />
+                <div className="skeleton-specs">
+                  <div className="skeleton-spec-item skeleton-shimmer" />
+                  <div className="skeleton-spec-item skeleton-shimmer" />
+                  <div className="skeleton-spec-item skeleton-shimmer" />
+                  <div className="skeleton-spec-item skeleton-shimmer" />
+                </div>
+                <div className="skeleton-btn skeleton-shimmer" />
+              </div>
+            ))}
+          </div>
+        ) : !hasFavorites ? (
+          <div style={{ background: '#f8fafc', padding: '36px 20px', textAlign: 'center', borderRadius: '12px', border: '1px solid #e2e8f0', margin: '24px 0' }}>
+            <p style={{ color: '#334155', fontWeight: 600, fontSize: '18px', margin: 0 }}>You haven't added any favorite vehicles yet!</p>
+            <p style={{ color: '#64748b', fontSize: '14px', margin: '8px 0 0' }}>
+              Explore our fleet from the cars page and click the heart icon on any vehicle to save it to your wishlist.
             </p>
           </div>
+        ) : (
+          <div className="car-grid car-grid--4" style={{ marginTop: '24px' }}>
+            {displayFavs.map((c, k) => (
+              <CarCard
+                key={c.id || k}
+                car={c}
+                liked={true}
+                size="sm"
+                onRent={() => navigate(`/app/car/${c.id || (k + 1)}`)}
+                onToggleFavorite={handleToggleFavorite}
+              />
+            ))}
+          </div>
         )}
-        <div className="car-grid car-grid--4">
-          {displayFavs.map((c, k) => (
-            <CarCard
-              key={c.id || k}
-              car={c}
-              liked={hasFavorites}
-              size="sm"
-              onRent={() => navigate(`/app/car/${c.id || (k + 1)}`)}
-              onToggleFavorite={handleToggleFavorite}
-            />
-          ))}
-        </div>
-        <Pagination />
+        {!loading && totalFavPages > 1 && (
+          <Pagination
+            page={favPage}
+            totalPages={totalFavPages}
+            onPageChange={(p) => setFavPage(p)}
+          />
+        )}
       </div>
     </Layout>
   );
