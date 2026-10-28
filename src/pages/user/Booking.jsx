@@ -190,6 +190,7 @@ export function RentalInfoModal({ onClose, ...props }) {
 /* Figma: "MacBook Pro 14 - 12" — Booking / checkout */
 export function Book() {
   const [done, setDone] = useState(false);
+  const [createdBookingId, setCreatedBookingId] = useState(null);
   const [rental, setRental] = useState(false);
   const [loading, setLoading] = useState(false);
   const [quoting, setQuoting] = useState(false);
@@ -381,6 +382,7 @@ export function Book() {
       const newBookingId = bookingRes?.data?._id || bookingRes?.data?.id;
 
       if (newBookingId) {
+        setCreatedBookingId(newBookingId);
         try {
           await apiRequest('/payments/charge', {
             method: 'POST',
@@ -623,7 +625,11 @@ export function Book() {
           onClose={() => setDone(false)}
           onDone={() => {
             setDone(false);
-            navigate('/app/bookings');
+            if (createdBookingId) {
+              navigate(`/app/booking-confirmed?id=${createdBookingId}`);
+            } else {
+              navigate('/app/bookings');
+            }
           }}
         />
       )}
@@ -670,6 +676,78 @@ function ChauffeurCard({ actions = true }) {
 
 /* Figma: "MacBook Pro 14 - 13" — Booking details after payment */
 export function BookingConfirmed() {
+  const [booking, setBooking] = useState(null);
+  const [recentBookings, setRecentBookings] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let active = true;
+    const hash = window.location.hash || '';
+    const query = hash.includes('?') ? hash.split('?')[1] : '';
+    const params = new URLSearchParams(query);
+    const bookingId = params.get('id');
+
+    apiRequest('/bookings')
+      .then((res) => {
+        if (!active) return;
+        const list = res?.data || [];
+        if (Array.isArray(list) && list.length > 0) {
+          setRecentBookings(list);
+          const found = bookingId ? list.find((b) => (b._id || b.id) === bookingId) : list[0];
+          setBooking(found || list[0]);
+        }
+      })
+      .catch((err) => console.warn('Could not load confirmed booking:', err.message))
+      .finally(() => {
+        if (active) setLoading(false);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  const v = booking?.vehicle;
+  const carName = v
+    ? `${v.year || ''} ${v.make || ''} ${v.model || ''}`.trim()
+    : 'Reserved Vehicle';
+
+  const carPhoto =
+    v?.photos?.find((p) => p.isPrimary)?.url ||
+    v?.photos?.[0]?.url ||
+    (typeof v?.photos?.[0] === 'string' ? v.photos[0] : null) ||
+    img('gtr-blue.jpg');
+
+  const pickupDate = booking?.pickup?.dateTime
+    ? new Date(booking.pickup.dateTime).toLocaleDateString('en-US', { day: 'numeric', month: 'long', year: 'numeric' })
+    : 'Scheduled Date';
+  const dropoffDate = booking?.dropoff?.dateTime
+    ? new Date(booking.dropoff.dateTime).toLocaleDateString('en-US', { day: 'numeric', month: 'long', year: 'numeric' })
+    : 'Scheduled Date';
+
+  const pickupTime = booking?.pickup?.dateTime
+    ? new Date(booking.pickup.dateTime).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })
+    : '10:00 AM';
+  const dropoffTime = booking?.dropoff?.dateTime
+    ? new Date(booking.dropoff.dateTime).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })
+    : '10:00 AM';
+
+  const pickupLoc = booking?.pickup?.location || v?.location?.city || 'Selected Location';
+  const dropoffLoc = booking?.dropoff?.location || booking?.pickup?.location || v?.location?.city || 'Selected Location';
+
+  const totalAmount =
+    booking?.pricing?.totalAmount != null
+      ? `$${Number(booking.pricing.totalAmount).toFixed(2)}`
+      : booking?.pricing?.total != null
+      ? `$${Number(booking.pricing.total).toFixed(2)}`
+      : '$0.00';
+
+  const host = booking?.host;
+  const chauffeur = booking?.chauffeurAssigned;
+  const hostName = chauffeur?.name || (host ? `${host.firstName || ''} ${host.lastName || ''}`.trim() : null) || 'Drive Concierge';
+  const hostCity = host?.city || v?.location?.city || 'Verified Fleet';
+  const hostPhoto = host?.profilePhotoUrl || img('chauffeur.jpg');
+
   return (
     <Layout role="user">
       <div className="container confirmed">
@@ -677,22 +755,46 @@ export function BookingConfirmed() {
         <div className="confirmed__grid">
           <section className="panel tx">
             <div className="tx__head">
-              <h3>Recent Transaction</h3>
-              <a href="#/app/payments">View All</a>
+              <h3>Recent Bookings</h3>
+              <a href="#/app/bookings">View All</a>
             </div>
-            {transactions.map(([im, n, t, d, p], i) => (
-              <div className="tx__row" key={i}>
-                <img src={img(im)} alt="" />
-                <div>
-                  <b>{n}</b>
-                  <small>{t}</small>
+            {recentBookings.length > 0 ? (
+              recentBookings.slice(0, 5).map((b, i) => {
+                const itemV = b.vehicle;
+                const name = itemV ? `${itemV.make || ''} ${itemV.model || ''}`.trim() : 'Rental Trip';
+                const photo = itemV?.photos?.[0]?.url || itemV?.photos?.[0] || img('tx-1.png');
+                const dateStr = b.createdAt ? new Date(b.createdAt).toLocaleDateString('en-US', { day: 'numeric', month: 'short' }) : 'Recent';
+                const price = b.pricing?.totalAmount != null ? `$${Number(b.pricing.totalAmount).toFixed(2)}` : '$0.00';
+
+                return (
+                  <div className="tx__row" key={b._id || b.id || i} style={{ cursor: 'pointer' }} onClick={() => setBooking(b)}>
+                    <img src={photo} alt="" />
+                    <div>
+                      <b>{name}</b>
+                      <small style={{ textTransform: 'capitalize' }}>{b.status || 'Active'}</small>
+                    </div>
+                    <div className="tx__right">
+                      <small>{dateStr}</small>
+                      <b>{price}</b>
+                    </div>
+                  </div>
+                );
+              })
+            ) : (
+              transactions.map(([im, n, t, d, p], i) => (
+                <div className="tx__row" key={i}>
+                  <img src={img(im)} alt="" />
+                  <div>
+                    <b>{n}</b>
+                    <small>{t}</small>
+                  </div>
+                  <div className="tx__right">
+                    <small>{d}</small>
+                    <b>{p}</b>
+                  </div>
                 </div>
-                <div className="tx__right">
-                  <small>{d}</small>
-                  <b>{p}</b>
-                </div>
-              </div>
-            ))}
+              ))
+            )}
           </section>
           <section className="panel booking-details">
             <h3>Booking Details</h3>
@@ -714,15 +816,15 @@ export function BookingConfirmed() {
                   <div className="leg__cols">
                     <div>
                       <b>Locations</b>
-                      <small>Baner, Pune</small>
+                      <small>{pickupLoc}</small>
                     </div>
                     <div>
                       <b>Date</b>
-                      <small>20 July 2022</small>
+                      <small>{pickupDate}</small>
                     </div>
                     <div>
                       <b>Time</b>
-                      <small>07.00</small>
+                      <small>{pickupTime}</small>
                     </div>
                   </div>
                 </div>
@@ -733,32 +835,57 @@ export function BookingConfirmed() {
                   <div className="leg__cols">
                     <div>
                       <b>Locations</b>
-                      <small>Baner, Pune</small>
+                      <small>{dropoffLoc}</small>
                     </div>
                     <div>
                       <b>Date</b>
-                      <small>21 July 2022</small>
+                      <small>{dropoffDate}</small>
                     </div>
                     <div>
                       <b>Time</b>
-                      <small>01.00</small>
+                      <small>{dropoffTime}</small>
                     </div>
                   </div>
                 </div>
                 <div className="booking-details__total">
                   <div>
                     <b>Total Rental Price</b>
-                    <small>Overall price and includes rental discount</small>
+                    <small>Overall price and includes rental taxes &amp; fees</small>
                   </div>
-                  <strong>$80.00</strong>
+                  <strong>{totalAmount}</strong>
                 </div>
               </div>
               <div>
-                <img className="booking-details__car" src={img('gtr-blue.jpg')} alt="" />
-                <h2>Nissan GT – R</h2>
-                <small className="muted">Sport Car</small>
-                <small className="muted">#9761</small>
-                <ChauffeurCard />
+                <img className="booking-details__car" src={carPhoto} alt={carName} />
+                <h2>{carName}</h2>
+                <small className="muted">{v?.category || v?.transmission || 'Luxury Fleet'}</small>
+                <small className="muted">{booking?.referenceCode || '#BK-9761'}</small>
+                <div className="chauffeur">
+                  <h4>{chauffeur?.name ? 'Chauffeur' : 'Host / Concierge'}</h4>
+                  <div className="chauffeur__row">
+                    <img src={hostPhoto} alt={hostName} />
+                    <div>
+                      <b>{hostName}</b>
+                      <small>{hostCity}</small>
+                      <Stars value={5} size={16} />
+                    </div>
+                  </div>
+                  <div className="chauffeur__btns">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const phone = chauffeur?.phone || host?.phoneNumber;
+                        if (phone) window.open(`tel:${phone}`);
+                        else alert('Host contact number will be provided prior to departure.');
+                      }}
+                    >
+                      <FiPhone /> Call
+                    </button>
+                    <button type="button" onClick={() => navigate('/app/inbox')}>
+                      <FiMessageSquare /> Message
+                    </button>
+                  </div>
+                </div>
               </div>
             </div>
           </section>

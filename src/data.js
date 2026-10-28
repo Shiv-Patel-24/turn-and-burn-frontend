@@ -158,7 +158,24 @@ export const carAt = (i) => cars[((i % cars.length) + cars.length) % cars.length
 
 export function formatVehicle(v, fallbackIndex = 0) {
   if (!v) return carAt(fallbackIndex);
-  const primaryPhoto = (v.photos && v.photos.find((p) => p.isPrimary)?.url) || (v.photos && v.photos[0]?.url);
+
+  // Extract primary or first photo directly from backend vehicle
+  let primaryPhoto = '';
+  if (Array.isArray(v.photos) && v.photos.length > 0) {
+    const isPrimaryObj = v.photos.find((p) => p && typeof p === 'object' && p.isPrimary);
+    if (isPrimaryObj && isPrimaryObj.url) {
+      primaryPhoto = isPrimaryObj.url;
+    } else {
+      const first = v.photos[0];
+      if (typeof first === 'string') primaryPhoto = first;
+      else if (first && typeof first === 'object' && first.url) primaryPhoto = first.url;
+    }
+  } else if (typeof v.photo === 'string') {
+    primaryPhoto = v.photo;
+  } else if (typeof v.image === 'string') {
+    primaryPhoto = v.image;
+  }
+
   const dailyRate = v.pricing?.dailyRate;
   const rawPrice = v.price;
   const price = typeof dailyRate === 'number' && Number.isFinite(dailyRate)
@@ -181,7 +198,7 @@ export function formatVehicle(v, fallbackIndex = 0) {
   return {
     id: v._id || v.id || fallbackIndex,
     name: v.name || `${v.year || ''} ${v.make || ''} ${v.model || ''}`.trim() || 'Vehicle',
-    image: primaryPhoto || img(`car${(fallbackIndex % 6) + 1}.jpg`),
+    image: primaryPhoto || '',
     price,
     mileage: v.odometer ? `${v.odometer.toLocaleString()} mi` : (v.mileage || '4,000'),
     gearbox: v.transmission || v.gearbox || 'Auto',

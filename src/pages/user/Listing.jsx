@@ -20,7 +20,6 @@ function DarkCheck({ checked, onChange, children }) {
 /* Figma: "MacBook Pro 14 - 7" — car listing with filter sidebar */
 export function Listing() {
   const { open } = useUI();
-  const [period, setPeriod] = useState('DAILY');
   const [selectedStyles, setSelectedStyles] = useState([]);
   const [selectedSeats, setSelectedSeats] = useState(null);
   const [chauffeur, setChauffeur] = useState(null);
@@ -46,6 +45,9 @@ export function Listing() {
   const [cityFilter, setCityFilter] = useState(initialParams.get('city') || '');
   const [pickupDateFilter, setPickupDateFilter] = useState(initialParams.get('pickupDate') || '');
   const [dropoffDateFilter, setDropoffDateFilter] = useState(initialParams.get('dropoffDate') || '');
+  const [period, setPeriod] = useState(
+    initialParams.get('mode') === 'hourly' ? 'HOURLY' : 'DAILY'
+  );
 
   // Reset to page 1 whenever any filter changes
   useEffect(() => {
@@ -83,6 +85,7 @@ export function Listing() {
       if (p.has('city')) setCityFilter(p.get('city') || '');
       if (p.has('pickupDate')) setPickupDateFilter(p.get('pickupDate') || '');
       if (p.has('dropoffDate')) setDropoffDateFilter(p.get('dropoffDate') || '');
+      if (p.has('mode')) setPeriod(p.get('mode') === 'hourly' ? 'HOURLY' : 'DAILY');
       if (p.has('style')) {
         const s = p.get('style');
         if (s) setSelectedStyles([s]);

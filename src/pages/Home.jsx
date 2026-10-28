@@ -147,7 +147,7 @@ export default function Home({ role = 'guest' }) {
             <Segmented options={['Hourly', 'Daily']} value={mode} onChange={setMode} />
             <Segmented options={['One Way Trip', 'Round Trip']} value={trip} onChange={setTrip} />
           </div>
-          <SearchPanel withTime ctaTo={isUser ? '/app/cars' : '/app/cars'} />
+          <SearchPanel withTime mode={mode} trip={trip} ctaTo={isUser ? '/app/cars' : '/app/cars'} />
         </div>
       </section>
 

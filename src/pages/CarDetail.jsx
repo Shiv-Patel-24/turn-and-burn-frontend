@@ -172,8 +172,8 @@ export default function CarDetail({ role = 'guest' }) {
       : 15); // Standard 15% long-term discount if not configured
   const monthlyRate = Math.round(dailyRateNum * 30 * (1 - monthlyDiscount / 100));
   const gallery = (vehicle?.photos && vehicle.photos.length > 0)
-    ? vehicle.photos.map((p) => p.url)
-    : defaultGallery;
+    ? vehicle.photos.map((p) => (typeof p === 'string' ? p : p?.url)).filter(Boolean)
+    : [];
 
   const currentSpecs = vehicle ? [
     [FiSettings, 'Make', vehicle.make || 'N/A'],
