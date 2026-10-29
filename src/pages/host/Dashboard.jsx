@@ -75,7 +75,7 @@ export function HostCalendar() {
         console.warn('Could not fetch host calendar:', err.message);
         return null;
       }),
-      apiRequest('/vehicles/mine').catch(() => null),
+      apiRequest('/vehicles').catch(() => null),
     ]).then(([calRes, vehRes]) => {
       if (!active) return;
       if (calRes?.data) {
