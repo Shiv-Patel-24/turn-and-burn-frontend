@@ -155,6 +155,28 @@ export default function CarDetail({ role = 'guest' }) {
     };
   }, [carId]);
 
+  const handleStartConversation = async () => {
+    const hostId = vehicle?.host?._id || (typeof vehicle?.host === 'string' ? vehicle?.host : null);
+    if (!hostId) {
+      navigate('/app/inbox');
+      return;
+    }
+    try {
+      await apiRequest('/messages/conversations', {
+        method: 'POST',
+        body: {
+          recipientId: hostId,
+          vehicleId: vehicle?._id || carId,
+          text: `Hi! I'm interested in renting your ${vehicle?.year || ''} ${vehicle?.make || ''} ${vehicle?.model || ''}. Is it available?`,
+        },
+      });
+    } catch (err) {
+      console.warn('Start conversation notice:', err.message);
+    } finally {
+      navigate('/app/inbox');
+    }
+  };
+
   if (loading && !vehicle) {
     return (
       <Layout role={role}>
@@ -301,7 +323,7 @@ export default function CarDetail({ role = 'guest' }) {
                 <strong>{carPrice}</strong>
               </div>
               <div className="detail__ctas">
-                <button type="button" className="btn btn-outline-primary" onClick={guard(() => navigate('/app/inbox'))}>
+                <button type="button" className="btn btn-outline-primary" onClick={guard(handleStartConversation)}>
                   Contact Seller
                 </button>
                 <button type="button" className="btn btn-primary" onClick={guard(() => navigate(`/app/book?vehicle=${carId || vehicle?._id || ''}`))}>
@@ -458,7 +480,7 @@ export default function CarDetail({ role = 'guest' }) {
                 <FiShield /> Verified host
               </li>
             </ul>
-            <button type="button" className="btn btn-primary btn-block" onClick={guard(() => navigate('/app/inbox'))}>
+            <button type="button" className="btn btn-primary btn-block" onClick={guard(handleStartConversation)}>
               Message Seller
             </button>
             <button type="button" className="btn btn-outline btn-block" onClick={guard(() => {})}>

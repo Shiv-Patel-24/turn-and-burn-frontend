@@ -86,7 +86,7 @@ export default function Inbox({ role = 'user' }) {
   const activeConv = conversations[active];
   const activeConvId = activeConv?._id || activeConv?.id;
 
-  // Load messages for currently selected conversation
+  // Load messages for currently selected conversation and mark as read
   useEffect(() => {
     if (!activeConvId) {
       setMessages([]);
@@ -99,6 +99,17 @@ export default function Inbox({ role = 'user' }) {
         if (!activeEffect) return;
         const msgList = res?.data || [];
         setMessages(Array.isArray(msgList) ? msgList : []);
+
+        // Mark conversation as read on the backend
+        apiRequest(`/messages/conversations/${activeConvId}/read`, { method: 'PATCH' })
+          .then(() => {
+            setConversations((prev) =>
+              prev.map((c) =>
+                (c._id || c.id) === activeConvId ? { ...c, unreadCount: 0 } : c
+              )
+            );
+          })
+          .catch(() => {});
       })
       .catch((err) => {
         console.warn('Could not load messages from server:', err.message);
@@ -113,7 +124,6 @@ export default function Inbox({ role = 'user' }) {
     };
   }, [activeConvId]);
 
-  // Send message
   const send = async () => {
     if (!text.trim() || sending) return;
     const currentText = text.trim();
@@ -121,7 +131,6 @@ export default function Inbox({ role = 'user' }) {
     setSending(true);
 
     if (activeConvId) {
-      // Optimistic update
       const tempId = `temp-${Date.now()}`;
       const optimisticMsg = {
         _id: tempId,
@@ -144,7 +153,6 @@ export default function Inbox({ role = 'user' }) {
           setMessages((prev) => prev.map((m) => (m._id === tempId ? res.data : m)));
         }
 
-        // Update last message in active conversation locally
         setConversations((prev) =>
           prev.map((c) =>
             (c._id || c.id) === activeConvId
@@ -158,12 +166,10 @@ export default function Inbox({ role = 'user' }) {
         );
       } catch (err) {
         console.warn('Failed to send live message to server:', err.message);
-        // Revert or leave note
       } finally {
         setSending(false);
       }
     } else {
-      // Fallback local only if no active dynamic conversation
       setMessages((prev) => [
         ...prev,
         {
@@ -178,7 +184,6 @@ export default function Inbox({ role = 'user' }) {
     }
   };
 
-  // Filter conversations
   const filteredConversations = conversations.filter((c) => {
     if (!searchQuery.trim()) return true;
     const q = searchQuery.toLowerCase();
@@ -189,7 +194,6 @@ export default function Inbox({ role = 'user' }) {
     return name.includes(q) || vehicleName.includes(q) || lastTxt.includes(q);
   });
 
-  // Active contact info
   const activeOther = activeConv?.otherParticipant || {};
   const activeOtherName = activeOther.firstName ? `${activeOther.firstName} ${activeOther.lastName || ''}`.trim() : 'Killan James';
   const activeAvatar = activeOther.profilePhotoUrl || img('av-killan.jpg');
@@ -254,7 +258,6 @@ export default function Inbox({ role = 'user' }) {
               );
             })
           ) : conversations.length === 0 ? (
-            // Fallback to initial chats if no server conversation
             fallbackChats.map((c, i) =>
               c.section ? (
                 <p className="inbox__section" key={i}>
@@ -343,13 +346,11 @@ export default function Inbox({ role = 'user' }) {
                 );
               })
             ) : (
-              // If conversations exist but no messages
               activeConv ? (
                 <div style={{ textAlign: 'center', padding: '40px 20px', color: '#888' }}>
                   <p>No messages in this conversation yet. Send a message to start!</p>
                 </div>
               ) : (
-                // Fallback static preview
                 <>
                   <div className="msg">
                     <img src={img('av-killan.jpg')} alt="" />
