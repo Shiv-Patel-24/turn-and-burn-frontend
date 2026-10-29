@@ -896,11 +896,53 @@ export function BookingConfirmed() {
 }
 
 /* Figma: "Frame 1437253750" — Add Review & Ratings */
-export function ReviewModal({ onClose }) {
-  const [r, setR] = useState([4, 4, 4]);
+export function ReviewModal({ booking, onClose, onSuccess }) {
+  const [r, setR] = useState([5, 5, 5]);
+  const [comment, setComment] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState('');
+
+  const handleSubmit = async () => {
+    const bookingId = booking?._id || booking?.id;
+    if (!bookingId) {
+      onClose();
+      return;
+    }
+    setError('');
+    setSubmitting(true);
+    try {
+      const overallRating = Math.round((r[0] + r[1] + r[2]) / 3);
+      await apiRequest('/reviews', {
+        method: 'POST',
+        body: {
+          bookingId,
+          overallRating,
+          categoryRatings: {
+            carCondition: r[0],
+            chauffeurExperience: r[1],
+            overallService: r[2],
+          },
+          comment: comment.trim(),
+        },
+      });
+      if (onSuccess) onSuccess();
+      onClose();
+    } catch (err) {
+      console.warn('Submit review failed:', err);
+      setError(err?.message || 'Failed to submit review.');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
   return (
     <Modal onClose={onClose} width={639} className="auth">
       <ModalHeader title="Add Review & Ratings" onClose={onClose} />
+      {error && (
+        <div style={{ color: '#ef4444', backgroundColor: '#fee2e2', padding: '10px 14px', borderRadius: '8px', margin: '12px 0', fontSize: '13px' }}>
+          {error}
+        </div>
+      )}
       <div className="review-upload">
         <label className="review-upload__btn">
           <span>
@@ -921,10 +963,16 @@ export function ReviewModal({ onClose }) {
         </Field>
       ))}
       <Field label="Write Reviews">
-        <textarea className="input textarea" rows={4} placeholder="Lorem ipsum is placeholder text commonly used in the graphic, print, and publishing industries for previewing layouts and visual mockups." />
+        <textarea
+          className="input textarea"
+          rows={4}
+          placeholder="Share your experience with this vehicle and trip..."
+          value={comment}
+          onChange={(e) => setComment(e.target.value)}
+        />
       </Field>
-      <button type="button" className="btn btn-primary btn-block btn-lg" onClick={onClose}>
-        Submit
+      <button type="button" className="btn btn-primary btn-block btn-lg" disabled={submitting} onClick={handleSubmit}>
+        {submitting ? 'Submitting...' : 'Submit Review'}
       </button>
     </Modal>
   );
@@ -1051,15 +1099,14 @@ function BookingRow({ booking, previous, onReview }) {
 
 /* Figma: "MacBook Pro 14 - 14" — My Bookings */
 export function Bookings() {
-  const [review, setReview] = useState(false);
+  const [reviewBooking, setReviewBooking] = useState(null);
   const [bookings, setBookings] = useState([]);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    let active = true;
+  const fetchBookings = () => {
+    setLoading(true);
     apiRequest('/bookings')
       .then((res) => {
-        if (!active) return;
         const list = res?.data || [];
         setBookings(Array.isArray(list) ? list : []);
       })
@@ -1067,11 +1114,12 @@ export function Bookings() {
         console.warn('Could not fetch bookings from server:', err.message);
       })
       .finally(() => {
-        if (active) setLoading(false);
+        setLoading(false);
       });
-    return () => {
-      active = false;
-    };
+  };
+
+  useEffect(() => {
+    fetchBookings();
   }, []);
 
   const upcoming = bookings.filter((b) => b.status === 'pending' || b.status === 'approved' || b.status === 'active');
@@ -1101,7 +1149,7 @@ export function Bookings() {
         <h2>Previous Bookings</h2>
         {!loading && past.length > 0 ? (
           past.map((b) => (
-            <BookingRow key={b._id || b.id} booking={b} previous onReview={() => setReview(true)} />
+            <BookingRow key={b._id || b.id} booking={b} previous onReview={() => setReviewBooking(b)} />
           ))
         ) : !loading ? (
           <div style={{ background: '#f8fafc', padding: '28px 20px', textAlign: 'center', borderRadius: '12px', border: '1px solid #e2e8f0', margin: '16px 0' }}>
@@ -1109,7 +1157,13 @@ export function Bookings() {
           </div>
         ) : null}
       </div>
-      {review && <ReviewModal onClose={() => setReview(false)} />}
+      {reviewBooking && (
+        <ReviewModal
+          booking={reviewBooking}
+          onClose={() => setReviewBooking(null)}
+          onSuccess={fetchBookings}
+        />
+      )}
     </Layout>
   );
 }
