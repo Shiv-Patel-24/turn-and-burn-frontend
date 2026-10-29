@@ -111,15 +111,27 @@ export default function CarDetail({ role = 'guest' }) {
     apiRequest(`/reviews/vehicle/${carId}`)
       .then((res) => {
         if (!active) return;
-        const list = res?.data?.reviews || [];
-        if (Array.isArray(list) && list.length > 0) setVehicleReviews(list);
+        const list = Array.isArray(res?.data)
+          ? res.data
+          : Array.isArray(res?.data?.reviews)
+          ? res.data.reviews
+          : [];
+        if (list.length > 0) setVehicleReviews(list);
       })
       .catch(() => {});
 
     apiRequest(`/reviews/vehicle/${carId}/summary`)
       .then((res) => {
         if (!active) return;
-        if (res?.data) setReviewSummary(res.data);
+        if (res?.data) {
+          const s = res.data;
+          setReviewSummary({
+            ...s,
+            averageRating: s.average != null ? s.average : s.averageRating,
+            totalReviews: s.count != null ? s.count : s.totalReviews,
+            total: s.count != null ? s.count : s.total,
+          });
+        }
       })
       .catch(() => {});
 
@@ -349,57 +361,64 @@ export default function CarDetail({ role = 'guest' }) {
             <h2 className="card__title">Seller Ratings &amp; Reviews</h2>
             <div className="rating-summary">
               <div className="rating-summary__score">
-                <strong>{reviewSummary?.average || vehicle?.ratingsAverage || '4.89'}</strong>
+                <strong>{reviewSummary?.average != null ? Number(reviewSummary.average).toFixed(1) : (vehicle?.ratingsAverage != null ? Number(vehicle.ratingsAverage).toFixed(1) : '5.0')}</strong>
                 <span className="stars-row">
                   {[1, 2, 3, 4, 5].map((s) => (
-                    <FaStar key={s} color="#FDB022" />
+                    <FaStar key={s} color={s <= Math.round(reviewSummary?.average || vehicle?.ratingsAverage || 5) ? '#FDB022' : '#E2E8F0'} />
                   ))}
                 </span>
-                <small>{reviewSummary?.total || vehicle?.ratingsCount || '168'} reviews</small>
+                <small>{reviewSummary?.total != null ? reviewSummary.total : (vehicle?.ratingsCount != null ? vehicle.ratingsCount : vehicleReviews.length)} reviews</small>
               </div>
               <div className="rating-bars">
-                {[
-                  ['5 star', reviewSummary?.distribution?.[5] || 142, 85],
-                  ['4 star', reviewSummary?.distribution?.[4] || 18, 10],
-                  ['3 star', reviewSummary?.distribution?.[3] || 5, 3],
-                  ['2 star', reviewSummary?.distribution?.[2] || 2, 1],
-                  ['1 star', reviewSummary?.distribution?.[1] || 1, 1],
-                ].map(([l, n, p]) => (
-                  <div key={l}>
-                    <span>{l}</span>
-                    <i>
-                      <b style={{ width: `${p}%` }} />
-                    </i>
-                    <span>{n}</span>
-                  </div>
-                ))}
+                {[5, 4, 3, 2, 1].map((star) => {
+                  const count = reviewSummary?.distribution?.[star] || 0;
+                  const total = reviewSummary?.total || vehicleReviews.length || 1;
+                  const pct = total > 0 ? Math.round((count / total) * 100) : 0;
+                  return (
+                    <div key={star}>
+                      <span>{star} star</span>
+                      <i>
+                        <b style={{ width: `${pct}%` }} />
+                      </i>
+                      <span>{count}</span>
+                    </div>
+                  );
+                })}
               </div>
             </div>
-            {(vehicleReviews.length > 0 ? vehicleReviews.map((r) => [
-              (r.reviewer?.firstName?.[0] || 'U') + (r.reviewer?.lastName?.[0] || ''),
-              `${r.reviewer?.firstName || 'Guest'} ${r.reviewer?.lastName || ''}`.trim(),
-              new Date(r.createdAt).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }),
-              r.overallRating || 5,
-              r.comment || 'Smooth rental experience.'
-            ]) : reviews).map(([ini, name, date, stars, text]) => (
-              <div className="review" key={name}>
-                <span className="review__ini">{ini}</span>
-                <div>
-                  <div className="review__top">
+            {vehicleReviews.length > 0 ? (
+              vehicleReviews.map((r) => {
+                const name = `${r.reviewer?.firstName || 'Guest'} ${r.reviewer?.lastName || ''}`.trim();
+                const ini = ((r.reviewer?.firstName?.[0] || 'G') + (r.reviewer?.lastName?.[0] || '')).toUpperCase();
+                const date = r.createdAt
+                  ? new Date(r.createdAt).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })
+                  : 'Recent';
+                const stars = Math.round(r.overallRating || 5);
+                return (
+                  <div className="review" key={r._id || r.id || name}>
+                    <span className="review__ini">{ini}</span>
                     <div>
-                      <b>{name}</b>
-                      <small>{date}</small>
+                      <div className="review__top">
+                        <div>
+                          <b>{name}</b>
+                          <small>{date}</small>
+                        </div>
+                        <span className="stars-row">
+                          {[1, 2, 3, 4, 5].map((s) => (
+                            <FaStar key={s} color={s <= stars ? '#FDB022' : '#E2E8F0'} />
+                          ))}
+                        </span>
+                      </div>
+                      <p>{r.comment || 'Smooth rental experience.'}</p>
                     </div>
-                    <span className="stars-row">
-                      {Array.from({ length: Math.round(stars) }).map((_, s) => (
-                        <FaStar key={s} color="#FDB022" />
-                      ))}
-                    </span>
                   </div>
-                  <p>{text}</p>
-                </div>
-              </div>
-            ))}
+                );
+              })
+            ) : (
+              <p style={{ color: '#64748b', fontSize: '14px', padding: '16px 0', textAlign: 'center' }}>
+                No reviews yet for this vehicle. Be the first to leave a review after your trip!
+              </p>
+            )}
             <button type="button" className="btn btn-outline btn-block">
               View All Reviews
             </button>
