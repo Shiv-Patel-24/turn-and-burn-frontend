@@ -135,3 +135,49 @@ export function getApiBaseUrl() {
   return API_BASE_URL;
 }
 
+/**
+ * Downloads a file from an authenticated endpoint (e.g. CSV or PDF),
+ * extracting the filename from Content-Disposition if present.
+ */
+export async function downloadFile(path, defaultFilename = 'download') {
+  const token = localStorage.getItem('turn_and_burn_access_token');
+  const headers = {};
+  if (token) headers['Authorization'] = `Bearer ${token}`;
+
+  const response = await fetch(getUrl(path), {
+    method: 'GET',
+    headers,
+  });
+
+  if (!response.ok) {
+    let errorText = 'File download failed';
+    try {
+      const errJson = await response.json();
+      errorText = errJson.message || errorText;
+    } catch {
+      errorText = `Download failed with status ${response.status}`;
+    }
+    throw new ApiError(errorText, { status: response.status });
+  }
+
+  const disposition = response.headers.get('content-disposition');
+  let filename = defaultFilename;
+  if (disposition && disposition.includes('filename=')) {
+    const match = disposition.match(/filename[^;=\n]*=((['"]).*?\2|[^;\n]*)/);
+    if (match && match[1]) {
+      filename = match[1].replace(/['"]/g, '').trim();
+    }
+  }
+
+  const blob = await response.blob();
+  const url = window.URL.createObjectURL(blob);
+  const anchor = document.createElement('a');
+  anchor.href = url;
+  anchor.download = filename;
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+  window.URL.revokeObjectURL(url);
+}
+
+

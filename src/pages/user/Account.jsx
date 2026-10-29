@@ -8,7 +8,7 @@ import { Modal, Select, Radio, Field, Input } from '../../ui';
 import { img, LOREM } from '../../data';
 import { PaymentFields, AgreeBox, SuccessModal } from './Booking';
 import { navigate } from '../../router';
-import { apiRequest, getCurrentUser, setCurrentUser } from '../../lib/api';
+import { apiRequest, getCurrentUser, setCurrentUser, downloadFile } from '../../lib/api';
 
 function PageTitle({ title, children, right }) {
   return (
@@ -468,21 +468,18 @@ export function PaymentHistory() {
     };
   }, []);
 
+  const [exporting, setExporting] = useState(false);
+
   const handleExportCsv = async () => {
+    if (exporting) return;
+    setExporting(true);
     try {
-      const token = localStorage.getItem('turn_and_burn_access_token');
-      const res = await fetch('https://turn-and-burn-backend.onrender.com/api/v1/payments/export/csv', {
-        headers: { Authorization: `Bearer ${token}` }
-      });
-      const blob = await res.blob();
-      const url = window.URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = 'payments_export.csv';
-      a.click();
-      window.URL.revokeObjectURL(url);
+      await downloadFile('/payments/export/csv', 'payment-history.csv');
     } catch (err) {
       console.warn('CSV export error:', err);
+      alert(err.message || 'Failed to export payment history CSV.');
+    } finally {
+      setExporting(false);
     }
   };
 
@@ -514,8 +511,8 @@ export function PaymentHistory() {
                 Sep 9, 2024 - Sep 15, 2024 <FiCalendar />
               </button>
               <div>
-                <button type="button" className="chip-btn" onClick={handleExportCsv}>
-                  Export CSV <FiFileText />
+                <button type="button" className="chip-btn" onClick={handleExportCsv} disabled={exporting}>
+                  {exporting ? 'Exporting...' : 'Export CSV'} <FiFileText />
                 </button>
               </div>
             </div>
