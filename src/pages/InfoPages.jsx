@@ -246,6 +246,46 @@ export function Contact({ role, faq = false }) {
     };
   }, []);
 
+  const [myTickets, setMyTickets] = useState([]);
+  const [loadingTickets, setLoadingTickets] = useState(false);
+  const [replyText, setReplyText] = useState({});
+  const [replying, setReplying] = useState(false);
+
+  const fetchMyTickets = () => {
+    const token = localStorage.getItem('turn_and_burn_access_token');
+    if (!token) return;
+    setLoadingTickets(true);
+    apiRequest('/support-tickets/mine')
+      .then((res) => {
+        const list = res?.data || [];
+        setMyTickets(Array.isArray(list) ? list : []);
+      })
+      .catch(() => {})
+      .finally(() => setLoadingTickets(false));
+  };
+
+  useEffect(() => {
+    fetchMyTickets();
+  }, []);
+
+  const handleReplyTicket = async (ticketId) => {
+    const text = replyText[ticketId]?.trim();
+    if (!text || replying) return;
+    setReplying(true);
+    try {
+      await apiRequest(`/support-tickets/${ticketId}/reply`, {
+        method: 'POST',
+        body: { text },
+      });
+      setReplyText((prev) => ({ ...prev, [ticketId]: '' }));
+      fetchMyTickets();
+    } catch (err) {
+      alert(err.message || 'Failed to submit reply');
+    } finally {
+      setReplying(false);
+    }
+  };
+
   const subjectOptions = [
     'General Inquiry',
     'Billing Issue',
@@ -275,6 +315,7 @@ export function Contact({ role, faq = false }) {
       if (res?.data?.ticketNumber) {
         setTicketNum(res.data.ticketNumber);
       }
+      fetchMyTickets();
     } catch (err) {
       setError(err.message || 'Failed to submit contact message');
     } finally {
@@ -358,6 +399,85 @@ export function Contact({ role, faq = false }) {
           <img className="contact__plane" src={img('letter.png')} alt="" />
         </form>
       </section>
+
+      {localStorage.getItem('turn_and_burn_access_token') && (
+        <section className="container" style={{ margin: '48px auto' }}>
+          <h2 style={{ fontSize: '24px', fontWeight: 600, color: '#0f172a', marginBottom: '8px' }}>Your Support Tickets</h2>
+          <p style={{ color: '#64748b', fontSize: '14px', marginBottom: '24px' }}>Track questions, incident reports, and support conversation threads.</p>
+
+          {loadingTickets ? (
+            <p style={{ color: '#64748b' }}>Loading your support tickets...</p>
+          ) : myTickets.length === 0 ? (
+            <div style={{ padding: '28px', background: '#f8fafc', borderRadius: '12px', border: '1px solid #e2e8f0', color: '#64748b', textAlign: 'center' }}>
+              You haven't submitted any support tickets yet.
+            </div>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+              {myTickets.map((t) => (
+                <div key={t._id} style={{ background: '#ffffff', borderRadius: '12px', border: '1px solid #e2e8f0', padding: '20px', boxShadow: '0 1px 3px rgba(0,0,0,0.05)' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
+                    <div>
+                      <strong style={{ fontSize: '16px', color: '#0f172a' }}>{t.subject || 'Support Ticket'}</strong>
+                      <span style={{ marginLeft: '10px', fontSize: '12px', backgroundColor: '#eff6ff', color: '#2563eb', padding: '2px 8px', borderRadius: '6px', fontWeight: 600 }}>
+                        {t.ticketNumber}
+                      </span>
+                    </div>
+                    <span style={{
+                      padding: '3px 10px',
+                      borderRadius: '12px',
+                      fontSize: '12px',
+                      fontWeight: 600,
+                      backgroundColor: t.status === 'resolved' || t.status === 'closed' ? '#dcfce7' : '#fef3c7',
+                      color: t.status === 'resolved' || t.status === 'closed' ? '#15803d' : '#b45309',
+                      textTransform: 'capitalize',
+                    }}>
+                      {t.status || 'open'}
+                    </span>
+                  </div>
+
+                  <p style={{ color: '#334155', fontSize: '14px', margin: '0 0 12px', lineHeight: 1.5 }}>
+                    {t.message || t.description}
+                  </p>
+
+                  {Array.isArray(t.replies) && t.replies.length > 0 && (
+                    <div style={{ background: '#f8fafc', borderRadius: '8px', padding: '12px', marginBottom: '16px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                      {t.replies.map((r, i) => (
+                        <div key={i} style={{ fontSize: '13px', borderBottom: i < t.replies.length - 1 ? '1px solid #e2e8f0' : 'none', paddingBottom: '6px' }}>
+                          <strong style={{ color: '#0f172a' }}>{r.senderName || 'Support Agent'}:</strong>{' '}
+                          <span style={{ color: '#475569' }}>{r.text}</span>
+                          <small style={{ display: 'block', color: '#94a3b8', fontSize: '11px', marginTop: '2px' }}>
+                            {r.createdAt ? new Date(r.createdAt).toLocaleString() : ''}
+                          </small>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {t.status !== 'closed' && (
+                    <div style={{ display: 'flex', gap: '8px', marginTop: '12px' }}>
+                      <input
+                        placeholder="Write a reply..."
+                        value={replyText[t._id] || ''}
+                        onChange={(e) => setReplyText({ ...replyText, [t._id]: e.target.value })}
+                        style={{ flex: 1, padding: '8px 12px', borderRadius: '8px', border: '1px solid #cbd5e1', fontSize: '13px' }}
+                      />
+                      <button
+                        type="button"
+                        className="btn btn-black"
+                        style={{ padding: '8px 16px', fontSize: '13px' }}
+                        disabled={replying || !replyText[t._id]?.trim()}
+                        onClick={() => handleReplyTicket(t._id)}
+                      >
+                        Reply
+                      </button>
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </section>
+      )}
 
       {faq && (
         <section className="container faq">

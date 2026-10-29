@@ -1018,3 +1018,197 @@ export function GiftCards() {
   );
 }
 
+export function Referrals() {
+  const [info, setInfo] = useState(null);
+  const [stats, setStats] = useState(null);
+  const [referrals, setReferrals] = useState([]);
+  const [inviteEmail, setInviteEmail] = useState('');
+  const [inviting, setInviting] = useState(false);
+  const [inviteMsg, setInviteMsg] = useState('');
+  const [inviteError, setInviteError] = useState('');
+  const [copied, setCopied] = useState(false);
+  const [loading, setLoading] = useState(true);
+
+  const fetchReferralData = () => {
+    setLoading(true);
+    Promise.all([
+      apiRequest('/referrals/me').catch(() => null),
+      apiRequest('/referrals/stats').catch(() => null),
+      apiRequest('/referrals').catch(() => null),
+    ])
+      .then(([infoRes, statsRes, listRes]) => {
+        if (infoRes?.data) setInfo(infoRes.data);
+        if (statsRes?.data) setStats(statsRes.data);
+        if (Array.isArray(listRes?.data)) setReferrals(listRes.data);
+      })
+      .catch((err) => console.warn('Could not load referral data:', err))
+      .finally(() => setLoading(false));
+  };
+
+  useEffect(() => {
+    fetchReferralData();
+  }, []);
+
+  const handleCopyLink = () => {
+    const link = info?.referralLink || `${window.location.origin}/#/register?ref=${info?.referralCode || ''}`;
+    navigator.clipboard.writeText(link).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2500);
+    });
+  };
+
+  const handleSendInvite = async (e) => {
+    e.preventDefault();
+    if (!inviteEmail.trim() || inviting) return;
+    setInviting(true);
+    setInviteMsg('');
+    setInviteError('');
+    try {
+      await apiRequest('/referrals/invite', {
+        method: 'POST',
+        body: { email: inviteEmail.trim() },
+      });
+      setInviteMsg(`Invite sent to ${inviteEmail.trim()}!`);
+      setInviteEmail('');
+      fetchReferralData();
+    } catch (err) {
+      setInviteError(err.message || 'Failed to send invite.');
+    } finally {
+      setInviting(false);
+    }
+  };
+
+  return (
+    <Layout role="user">
+      <div className="container">
+        <PageTitle title="Refer & Earn">
+          Invite friends to Turn and Burn. Earn ${info?.rewardPerReferral || 150} in travel credits when they complete their first qualifying booking!
+        </PageTitle>
+
+        {/* Stats Row */}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '16px', margin: '24px 0 32px' }}>
+          <div style={{ background: '#f8fafc', padding: '20px', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
+            <span style={{ fontSize: '13px', color: '#64748b', textTransform: 'uppercase', fontWeight: 600 }}>Friends Invited</span>
+            <h3 style={{ fontSize: '28px', color: '#0f172a', margin: '4px 0 0' }}>{stats?.totalInvited ?? 0}</h3>
+          </div>
+          <div style={{ background: '#f8fafc', padding: '20px', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
+            <span style={{ fontSize: '13px', color: '#64748b', textTransform: 'uppercase', fontWeight: 600 }}>Joined / Signed Up</span>
+            <h3 style={{ fontSize: '28px', color: '#0f172a', margin: '4px 0 0' }}>{stats?.totalSignedUp ?? 0}</h3>
+          </div>
+          <div style={{ background: '#f8fafc', padding: '20px', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
+            <span style={{ fontSize: '13px', color: '#64748b', textTransform: 'uppercase', fontWeight: 600 }}>Completed Rentals</span>
+            <h3 style={{ fontSize: '28px', color: '#0f172a', margin: '4px 0 0' }}>{stats?.totalRewarded ?? 0}</h3>
+          </div>
+          <div style={{ background: '#ecfdf5', padding: '20px', borderRadius: '12px', border: '1px solid #a7f3d0' }}>
+            <span style={{ fontSize: '13px', color: '#047857', textTransform: 'uppercase', fontWeight: 600 }}>Total Earned</span>
+            <h3 style={{ fontSize: '28px', color: '#065f46', margin: '4px 0 0' }}>${(stats?.totalEarned ?? 0).toFixed(2)}</h3>
+          </div>
+        </div>
+
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '24px', marginBottom: '40px' }}>
+          <div style={{ background: '#ffffff', padding: '24px', borderRadius: '12px', border: '1px solid #e2e8f0', boxShadow: '0 1px 3px rgba(0,0,0,0.05)' }}>
+            <h3 style={{ fontSize: '18px', fontWeight: 600, color: '#0f172a', marginBottom: '8px' }}>Your Referral Code & Link</h3>
+            <p style={{ fontSize: '14px', color: '#64748b', margin: '0 0 16px' }}>Share this code with your friends or copy your personalized invite link:</p>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '12px' }}>
+              <span style={{ fontSize: '14px', color: '#64748b' }}>Code:</span>
+              <strong style={{ fontSize: '18px', letterSpacing: '0.05em', color: '#2563eb', background: '#eff6ff', padding: '4px 12px', borderRadius: '6px' }}>
+                {info?.referralCode || 'LOADING...'}
+              </strong>
+            </div>
+            <button
+              type="button"
+              className="btn btn-primary"
+              style={{ width: '100%', padding: '12px' }}
+              onClick={handleCopyLink}
+            >
+              {copied ? 'Link Copied to Clipboard!' : 'Copy Referral Link'}
+            </button>
+          </div>
+
+          <div style={{ background: '#ffffff', padding: '24px', borderRadius: '12px', border: '1px solid #e2e8f0', boxShadow: '0 1px 3px rgba(0,0,0,0.05)' }}>
+            <h3 style={{ fontSize: '18px', fontWeight: 600, color: '#0f172a', marginBottom: '8px' }}>Invite by Email</h3>
+            <p style={{ fontSize: '14px', color: '#64748b', margin: '0 0 16px' }}>Enter your friend's email address and we'll send them a personal invitation:</p>
+            {inviteMsg && (
+              <div style={{ background: '#dcfce7', color: '#15803d', padding: '10px 14px', borderRadius: '8px', fontSize: '13px', marginBottom: '12px' }}>
+                {inviteMsg}
+              </div>
+            )}
+            {inviteError && (
+              <div style={{ background: '#fee2e2', color: '#b91c1c', padding: '10px 14px', borderRadius: '8px', fontSize: '13px', marginBottom: '12px' }}>
+                {inviteError}
+              </div>
+            )}
+            <form onSubmit={handleSendInvite} style={{ display: 'flex', gap: '8px' }}>
+              <input
+                type="email"
+                placeholder="friend@example.com"
+                value={inviteEmail}
+                onChange={(e) => setInviteEmail(e.target.value)}
+                required
+                style={{ flex: 1, padding: '10px 14px', borderRadius: '8px', border: '1px solid #cbd5e1', fontSize: '14px' }}
+              />
+              <button type="submit" className="btn btn-black" disabled={inviting || !inviteEmail.trim()}>
+                {inviting ? 'Sending...' : 'Send'}
+              </button>
+            </form>
+          </div>
+        </div>
+
+        <div>
+          <h2 style={{ fontSize: '20px', fontWeight: 600, color: '#0f172a', marginBottom: '16px' }}>Referral Status</h2>
+          {loading ? (
+            <p style={{ color: '#64748b' }}>Loading referral history...</p>
+          ) : referrals.length === 0 ? (
+            <div style={{ padding: '32px', background: '#f8fafc', borderRadius: '12px', border: '1px solid #e2e8f0', textAlign: 'center', color: '#64748b' }}>
+              No friends invited yet. Send your first invite above to start earning!
+            </div>
+          ) : (
+            <div className="table-wrap">
+              <table className="table">
+                <thead>
+                  <tr>
+                    <th>Invited User / Email</th>
+                    <th>Date Invited</th>
+                    <th>Status</th>
+                    <th>Reward Earned</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {referrals.map((r) => (
+                    <tr key={r._id}>
+                      <td>
+                        <strong>{r.referredUser ? `${r.referredUser.firstName || ''} ${r.referredUser.lastName || ''}`.trim() : r.referredEmail}</strong>
+                        {r.referredUser && <small style={{ display: 'block', color: '#64748b' }}>{r.referredEmail}</small>}
+                      </td>
+                      <td>{r.createdAt ? new Date(r.createdAt).toLocaleDateString() : 'Recent'}</td>
+                      <td>
+                        <span style={{
+                          padding: '3px 8px',
+                          borderRadius: '12px',
+                          fontSize: '12px',
+                          fontWeight: 500,
+                          backgroundColor: r.status === 'rewarded' ? '#dcfce7' : r.status === 'signed_up' ? '#eff6ff' : '#f1f5f9',
+                          color: r.status === 'rewarded' ? '#15803d' : r.status === 'signed_up' ? '#1d4ed8' : '#475569',
+                          textTransform: 'capitalize',
+                        }}>
+                          {r.status?.replace('_', ' ') || 'Invited'}
+                        </span>
+                      </td>
+                      <td>
+                        <strong style={{ color: r.status === 'rewarded' ? '#15803d' : '#94a3b8' }}>
+                          {r.status === 'rewarded' ? `$${(r.rewardAmount || 150).toFixed(2)}` : 'Pending Rental'}
+                        </strong>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      </div>
+    </Layout>
+  );
+}
+
+

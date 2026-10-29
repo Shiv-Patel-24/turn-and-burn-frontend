@@ -8,7 +8,7 @@ import CarDetail from './pages/CarDetail';
 import Inbox from './pages/Inbox';
 import { Listing, Favorites } from './pages/user/Listing';
 import { Book, BookingConfirmed, Bookings } from './pages/user/Booking';
-import { SavedLocations, Profile, PaymentHistory, GiftCards } from './pages/user/Account';
+import { SavedLocations, Profile, PaymentHistory, GiftCards, Referrals } from './pages/user/Account';
 import HostLanding from './pages/host/HostLanding';
 import Onboarding, { STEPS } from './pages/host/Onboarding';
 import { HostCalendar, HostTrips, HostVehicles } from './pages/host/Dashboard';
@@ -46,6 +46,7 @@ export const routes = [
   ['/app/gift-cards', GiftCards, {}, 'MacBook Pro 14" - 30 · Gift cards'],
 
   // ----- Host -----
+  ['/app/referrals', Referrals, {}, 'Refer & Earn'],
   ['/host', HostLanding, {}, 'MacBook Pro 14" - 23 · Host landing'],
   ['/host/list/:step', Onboarding, {}, 'MacBook Pro 14" - 24…39 · List your car'],
   ['/host/calendar', HostCalendar, {}, 'MacBook Pro 14" - 40 · Calendar'],
