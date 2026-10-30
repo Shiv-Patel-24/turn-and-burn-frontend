@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { FaApple, FaGooglePlay, FaInstagram, FaDribbble, FaTwitter, FaYoutube } from 'react-icons/fa';
-import { FiHome, FiHeart, FiMessageSquare, FiUser, FiMapPin, FiGift, FiHeadphones, FiLogOut, FiCalendar, FiMoreVertical, FiBell } from 'react-icons/fi';
+import { FiHome, FiHeart, FiMessageSquare, FiUser, FiMapPin, FiGift, FiHeadphones, FiLogOut, FiCalendar, FiMoreVertical, FiBell, FiTrash2, FiCheck, FiUsers } from 'react-icons/fi';
 import { IoCarSportOutline, IoSwapHorizontal, IoClose } from 'react-icons/io5';
 import { TbFileText, TbReceipt, TbRoad, TbChartBar } from 'react-icons/tb';
 import { Link, navigate } from '../router';
@@ -25,27 +25,52 @@ export function Header({ role = 'guest' }) {
   const [notifOpen, setNotifOpen] = useState(false);
   const [notifications, setNotifications] = useState([]);
 
-  useEffect(() => {
+  const loadNotifications = () => {
     if (role === 'guest') return;
-    let active = true;
-    apiRequest('/notifications?limit=10')
+    apiRequest('/notifications?limit=30')
       .then((res) => {
-        if (!active) return;
         const count = res?.data?.unreadCount || 0;
         setUnread(count);
         setNotifications(res?.data?.notifications || []);
       })
       .catch(() => {});
-    return () => {
-      active = false;
-    };
+  };
+
+  useEffect(() => {
+    loadNotifications();
   }, [role]);
 
   const handleMarkAllRead = async () => {
     setUnread(0);
+    setNotifications((prev) => prev.map((n) => ({ ...n, isRead: true })));
     try {
       await apiRequest('/notifications/read-all', { method: 'PATCH' });
-      setNotifications((prev) => prev.map((n) => ({ ...n, isRead: true })));
+    } catch {}
+  };
+
+  const handleMarkOneRead = async (id, e) => {
+    if (e) e.stopPropagation();
+    setNotifications((prev) => prev.map((n) => (n._id === id ? { ...n, isRead: true } : n)));
+    setUnread((prev) => Math.max(0, prev - 1));
+    try {
+      await apiRequest(`/notifications/${id}/read`, { method: 'PATCH' });
+    } catch {}
+  };
+
+  const handleDeleteOne = async (id, e) => {
+    if (e) e.stopPropagation();
+    setNotifications((prev) => prev.filter((n) => n._id !== id));
+    try {
+      await apiRequest(`/notifications/${id}`, { method: 'DELETE' });
+    } catch {}
+  };
+
+  const handleDeleteAll = async () => {
+    if (!window.confirm('Are you sure you want to delete all notifications?')) return;
+    setNotifications([]);
+    setUnread(0);
+    try {
+      await apiRequest('/notifications', { method: 'DELETE' });
     } catch {}
   };
 
@@ -98,9 +123,12 @@ export function Header({ role = 'guest' }) {
               <IoClose size={26} />
             </button>
           </div>
-          <div style={{ display: 'flex', justifyContent: 'flex-end', padding: '0 20px 10px' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0 20px 10px' }}>
             <button type="button" style={{ background: 'none', border: 'none', color: '#3b82f6', fontSize: '13px', cursor: 'pointer' }} onClick={handleMarkAllRead}>
               Mark all as read
+            </button>
+            <button type="button" style={{ background: 'none', border: 'none', color: '#ef4444', fontSize: '13px', cursor: 'pointer' }} onClick={handleDeleteAll}>
+              Clear all
             </button>
           </div>
           <div style={{ maxHeight: '75vh', overflowY: 'auto', padding: '0 20px 20px' }}>
@@ -110,19 +138,37 @@ export function Header({ role = 'guest' }) {
               notifications.map((n) => (
                 <div
                   key={n._id}
+                  onClick={(e) => !n.isRead && handleMarkOneRead(n._id, e)}
                   style={{
                     backgroundColor: n.isRead ? '#f9fafb' : '#eff6ff',
                     border: '1px solid #e5e7eb',
                     borderRadius: '12px',
                     padding: '14px',
                     marginBottom: '10px',
+                    position: 'relative',
+                    cursor: n.isRead ? 'default' : 'pointer',
                   }}
                 >
-                  <b style={{ display: 'block', fontSize: '14px', marginBottom: '4px', color: '#111827' }}>{n.title}</b>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '8px' }}>
+                    <b style={{ display: 'block', fontSize: '14px', marginBottom: '4px', color: '#111827' }}>{n.title}</b>
+                    <button
+                      type="button"
+                      onClick={(e) => handleDeleteOne(n._id, e)}
+                      style={{ background: 'none', border: 'none', color: '#9ca3af', cursor: 'pointer', padding: '2px' }}
+                      title="Delete notification"
+                    >
+                      <FiTrash2 size={14} />
+                    </button>
+                  </div>
                   <p style={{ margin: 0, fontSize: '13px', color: '#4b5563', lineHeight: 1.4 }}>{n.body}</p>
-                  <small style={{ display: 'block', marginTop: '6px', fontSize: '11px', color: '#9ca3af' }}>
-                    {new Date(n.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} · {new Date(n.createdAt).toLocaleDateString()}
-                  </small>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '6px' }}>
+                    <small style={{ fontSize: '11px', color: '#9ca3af' }}>
+                      {new Date(n.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} • {new Date(n.createdAt).toLocaleDateString()}
+                    </small>
+                    {!n.isRead && (
+                      <span style={{ fontSize: '11px', color: '#2563eb', fontWeight: 600 }}>Unread</span>
+                    )}
+                  </div>
                 </div>
               ))
             )}
@@ -305,6 +351,7 @@ export function UserMenu({ onClose }) {
     ],
     [
       { icon: FiGift, label: 'Gift Cards', to: '/app/gift-cards' },
+      { icon: FiUsers, label: 'Refer & Earn', to: '/app/referrals' },
       { icon: FiHeadphones, label: 'Contact Us', to: '/app/contact' },
       { icon: TbFileText, label: 'Legal', to: '/app/legal' },
     ],
