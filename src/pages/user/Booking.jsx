@@ -687,20 +687,56 @@ export function BookingConfirmed() {
     const params = new URLSearchParams(query);
     const bookingId = params.get('id');
 
+    setLoading(true);
+
+    if (bookingId) {
+      // 1. Fetch direct booking by id
+      apiRequest(`/bookings/${bookingId}`)
+        .then((res) => {
+          if (!active) return;
+          if (res?.data) {
+            setBooking(res.data);
+          }
+        })
+        .catch((err) => {
+          console.warn('Direct booking lookup failed, falling back to list:', err.message);
+          return apiRequest('/bookings').then((listRes) => {
+            if (!active) return;
+            const list = listRes?.data || [];
+            if (Array.isArray(list) && list.length > 0) {
+              setRecentBookings(list);
+              const found = list.find((b) => (b._id || b.id) === bookingId);
+              if (found) setBooking(found);
+            }
+          });
+        })
+        .finally(() => {
+          if (active) setLoading(false);
+        });
+    } else {
+      apiRequest('/bookings')
+        .then((res) => {
+          if (!active) return;
+          const list = res?.data || [];
+          if (Array.isArray(list) && list.length > 0) {
+            setRecentBookings(list);
+            setBooking(list[0]);
+          }
+        })
+        .catch((err) => console.warn('Could not load confirmed booking:', err.message))
+        .finally(() => {
+          if (active) setLoading(false);
+        });
+    }
+
+    // Also populate recent bookings list
     apiRequest('/bookings')
       .then((res) => {
         if (!active) return;
         const list = res?.data || [];
-        if (Array.isArray(list) && list.length > 0) {
-          setRecentBookings(list);
-          const found = bookingId ? list.find((b) => (b._id || b.id) === bookingId) : list[0];
-          setBooking(found || list[0]);
-        }
+        if (Array.isArray(list)) setRecentBookings(list);
       })
-      .catch((err) => console.warn('Could not load confirmed booking:', err.message))
-      .finally(() => {
-        if (active) setLoading(false);
-      });
+      .catch(() => {});
 
     return () => {
       active = false;
@@ -716,7 +752,7 @@ export function BookingConfirmed() {
     v?.photos?.find((p) => p.isPrimary)?.url ||
     v?.photos?.[0]?.url ||
     (typeof v?.photos?.[0] === 'string' ? v.photos[0] : null) ||
-    img('gtr-blue.jpg');
+    '';
 
   const pickupDate = booking?.pickup?.dateTime
     ? new Date(booking.pickup.dateTime).toLocaleDateString('en-US', { day: 'numeric', month: 'long', year: 'numeric' })
@@ -746,7 +782,7 @@ export function BookingConfirmed() {
   const chauffeur = booking?.chauffeurAssigned;
   const hostName = chauffeur?.name || (host ? `${host.firstName || ''} ${host.lastName || ''}`.trim() : null) || 'Drive Concierge';
   const hostCity = host?.city || v?.location?.city || 'Verified Fleet';
-  const hostPhoto = host?.profilePhotoUrl || img('chauffeur.jpg');
+  const hostPhoto = host?.profilePhotoUrl || '';
 
   return (
     <Layout role="user">
@@ -762,13 +798,19 @@ export function BookingConfirmed() {
               recentBookings.slice(0, 5).map((b, i) => {
                 const itemV = b.vehicle;
                 const name = itemV ? `${itemV.make || ''} ${itemV.model || ''}`.trim() : 'Rental Trip';
-                const photo = itemV?.photos?.[0]?.url || itemV?.photos?.[0] || img('tx-1.png');
+                const photo = itemV?.photos?.[0]?.url || itemV?.photos?.[0] || '';
                 const dateStr = b.createdAt ? new Date(b.createdAt).toLocaleDateString('en-US', { day: 'numeric', month: 'short' }) : 'Recent';
                 const price = b.pricing?.totalAmount != null ? `$${Number(b.pricing.totalAmount).toFixed(2)}` : '$0.00';
 
                 return (
                   <div className="tx__row" key={b._id || b.id || i} style={{ cursor: 'pointer' }} onClick={() => setBooking(b)}>
-                    <img src={photo} alt="" />
+                    {photo ? (
+                      <img src={photo} alt="" />
+                    ) : (
+                      <div style={{ width: 44, height: 44, borderRadius: 8, background: '#f1f5f9', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                        <IoCarOutline size={20} color="#94a3b8" />
+                      </div>
+                    )}
                     <div>
                       <b>{name}</b>
                       <small style={{ textTransform: 'capitalize' }}>{b.status || 'Active'}</small>
@@ -781,19 +823,9 @@ export function BookingConfirmed() {
                 );
               })
             ) : (
-              transactions.map(([im, n, t, d, p], i) => (
-                <div className="tx__row" key={i}>
-                  <img src={img(im)} alt="" />
-                  <div>
-                    <b>{n}</b>
-                    <small>{t}</small>
-                  </div>
-                  <div className="tx__right">
-                    <small>{d}</small>
-                    <b>{p}</b>
-                  </div>
-                </div>
-              ))
+              <div style={{ padding: '24px 10px', textAlign: 'center', color: '#94a3b8', fontSize: 14 }}>
+                No recent transactions found
+              </div>
             )}
           </section>
           <section className="panel booking-details">
@@ -856,14 +888,26 @@ export function BookingConfirmed() {
                 </div>
               </div>
               <div>
-                <img className="booking-details__car" src={carPhoto} alt={carName} />
+                {carPhoto ? (
+                  <img className="booking-details__car" src={carPhoto} alt={carName} />
+                ) : (
+                  <div style={{ height: 180, borderRadius: 12, background: '#f1f5f9', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 16 }}>
+                    <IoCarOutline size={48} color="#94a3b8" />
+                  </div>
+                )}
                 <h2>{carName}</h2>
                 <small className="muted">{v?.category || v?.transmission || 'Luxury Fleet'}</small>
                 <small className="muted">{booking?.referenceCode || '#BK-9761'}</small>
                 <div className="chauffeur">
                   <h4>{chauffeur?.name ? 'Chauffeur' : 'Host / Concierge'}</h4>
                   <div className="chauffeur__row">
-                    <img src={hostPhoto} alt={hostName} />
+                    {hostPhoto ? (
+                      <img src={hostPhoto} alt={hostName} />
+                    ) : (
+                      <div style={{ width: 44, height: 44, borderRadius: '50%', background: '#e2e8f0', display: 'grid', placeItems: 'center' }}>
+                        <FiUser size={22} color="#64748b" />
+                      </div>
+                    )}
                     <div>
                       <b>{hostName}</b>
                       <small>{hostCity}</small>
@@ -978,7 +1022,139 @@ export function ReviewModal({ booking, onClose, onSuccess }) {
   );
 }
 
-function BookingRow({ booking, previous, onReview }) {
+function RebookModal({ booking, onClose, onSuccess }) {
+  const [pickupDate, setPickupDate] = useState('');
+  const [dropoffDate, setDropoffDate] = useState('');
+  const [pickupLoc, setPickupLoc] = useState(booking?.pickup?.location || 'New York, NY');
+  const [dropoffLoc, setDropoffLoc] = useState(booking?.dropoff?.location || 'New York, NY');
+  const [promoCode, setPromoCode] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+
+  // Default to upcoming dates (tomorrow + 2 days)
+  useEffect(() => {
+    const tmrw = new Date();
+    tmrw.setDate(tmrw.getDate() + 2);
+    tmrw.setHours(10, 0, 0, 0);
+    const drop = new Date(tmrw);
+    drop.setDate(drop.getDate() + 2);
+
+    setPickupDate(tmrw.toISOString().slice(0, 16));
+    setDropoffDate(drop.toISOString().slice(0, 16));
+  }, []);
+
+  const handleRebook = async () => {
+    if (!pickupDate || !dropoffDate) {
+      setError('Please select both pick-up and drop-off dates.');
+      return;
+    }
+    setLoading(true);
+    setError('');
+
+    try {
+      const payload = {
+        tripType: booking?.tripType || 'daily',
+        pickup: {
+          location: pickupLoc,
+          dateTime: new Date(pickupDate).toISOString(),
+        },
+        dropoff: {
+          location: dropoffLoc,
+          dateTime: new Date(dropoffDate).toISOString(),
+        },
+      };
+      if (promoCode.trim()) payload.promoCode = promoCode.trim();
+
+      const bookingId = booking._id || booking.id;
+      const res = await apiRequest(`/bookings/${bookingId}/rebook`, {
+        method: 'POST',
+        body: payload,
+      });
+
+      const newBooking = res?.data;
+      if (newBooking?._id || newBooking?.id) {
+        onSuccess && onSuccess();
+        onClose();
+        navigate(`/app/book/confirmed?id=${newBooking._id || newBooking.id}`);
+      } else {
+        throw new Error('Could not create rebooking');
+      }
+    } catch (err) {
+      setError(err.message || 'Rebooking failed. Please check date availability.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <Modal onClose={onClose} width={520}>
+      <div className="modal__head">
+        <h2 className="modal__title">Rebook Your Trip</h2>
+        <button type="button" className="icon-btn" aria-label="Close" onClick={onClose}>
+          <IoClose size={26} />
+        </button>
+      </div>
+      <p style={{ color: '#64748b', fontSize: 14, marginBottom: 16 }}>
+        Quick re-booking for <strong>{booking?.vehicle?.make} {booking?.vehicle?.model}</strong> with your saved preferences.
+      </p>
+
+      {error && (
+        <div style={{ padding: '10px 14px', background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 8, color: '#dc2626', marginBottom: 16, fontSize: 14 }}>
+          {error}
+        </div>
+      )}
+
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+        <Field label="Pick-up Date & Time">
+          <Input
+            type="datetime-local"
+            value={pickupDate}
+            onChange={(e) => setPickupDate(e.target.value)}
+          />
+        </Field>
+        <Field label="Drop-off Date & Time">
+          <Input
+            type="datetime-local"
+            value={dropoffDate}
+            onChange={(e) => setDropoffDate(e.target.value)}
+          />
+        </Field>
+        <Field label="Pick-up Location">
+          <Input
+            value={pickupLoc}
+            onChange={(e) => setPickupLoc(e.target.value)}
+            placeholder="Address or Airport"
+          />
+        </Field>
+        <Field label="Drop-off Location">
+          <Input
+            value={dropoffLoc}
+            onChange={(e) => setDropoffLoc(e.target.value)}
+            placeholder="Address or Airport"
+          />
+        </Field>
+        <Field label="Promo Code (Optional)">
+          <Input
+            value={promoCode}
+            onChange={(e) => setPromoCode(e.target.value.toUpperCase())}
+            placeholder="e.g. SAVE20"
+          />
+        </Field>
+      </div>
+
+      <div style={{ marginTop: 24, display: 'flex', gap: 12, justifyContent: 'flex-end' }}>
+        <button type="button" className="btn btn-outline" disabled={loading} onClick={onClose}>
+          Cancel
+        </button>
+        <button type="button" className="btn btn-primary" disabled={loading} onClick={handleRebook}>
+          {loading ? 'Confirming...' : 'Confirm Rebooking'}
+        </button>
+      </div>
+    </Modal>
+  );
+}
+
+function BookingRow({ booking, previous, onReview, onRebook }) {
   if (!booking) return null;
 
   const v = booking.vehicle;
@@ -990,7 +1166,7 @@ function BookingRow({ booking, previous, onReview }) {
     v?.photos?.find((p) => p.isPrimary)?.url ||
     v?.photos?.[0]?.url ||
     (typeof v?.photos?.[0] === 'string' ? v.photos[0] : null) ||
-    img('booking-car.jpg');
+    '';
 
   const formatDate = (dt) => {
     if (!dt) return 'N/A';
@@ -1018,12 +1194,18 @@ function BookingRow({ booking, previous, onReview }) {
   const chauffeur = booking.chauffeurAssigned;
   const contactName = chauffeur?.name || (host ? `${host.firstName || ''} ${host.lastName || ''}`.trim() : null) || 'Drive Concierge';
   const contactLocation = host?.city || (v?.location?.city ? v.location.city : 'Available');
-  const contactPhoto = host?.profilePhotoUrl || img('chauffeur.jpg');
+  const contactPhoto = host?.profilePhotoUrl || '';
 
   return (
     <div className="booking-row">
       <div className="booking-row__car">
-        <img src={primaryPhoto} alt={carName} />
+        {primaryPhoto ? (
+          <img src={primaryPhoto} alt={carName} />
+        ) : (
+          <div style={{ width: '100%', height: 110, borderRadius: 6, background: '#f1f5f9', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <IoCarOutline size={32} color="#94a3b8" />
+          </div>
+        )}
         <b>{carName}</b>
         <span>
           <Stars value={Math.round(ratingAvg)} size={14} /> {ratingCount > 0 ? `${ratingCount} Reviews` : 'Verified'}
@@ -1045,7 +1227,13 @@ function BookingRow({ booking, previous, onReview }) {
       <div className="booking-row__chauffeur">
         <h4>{chauffeur?.name ? 'Assigned Chauffeur' : 'Host / Concierge'}</h4>
         <div>
-          <img src={contactPhoto} alt={contactName} />
+          {contactPhoto ? (
+            <img src={contactPhoto} alt={contactName} />
+          ) : (
+            <div style={{ width: 44, height: 44, borderRadius: '50%', background: '#e2e8f0', display: 'grid', placeItems: 'center' }}>
+              <FiUser size={20} color="#64748b" />
+            </div>
+          )}
           <div>
             <b>{contactName}</b>
             <small>{contactLocation}</small>
@@ -1059,7 +1247,7 @@ function BookingRow({ booking, previous, onReview }) {
             <button
               type="button"
               className="act act--orange"
-              onClick={() => navigate(v?._id ? `/app/book?vehicle=${v._id}` : '/app/cars')}
+              onClick={onRebook}
             >
               <FiRefreshCw /> Rebook Trip
             </button>
@@ -1100,6 +1288,7 @@ function BookingRow({ booking, previous, onReview }) {
 /* Figma: "MacBook Pro 14 - 14" — My Bookings */
 export function Bookings() {
   const [reviewBooking, setReviewBooking] = useState(null);
+  const [rebookTarget, setRebookTarget] = useState(null);
   const [bookings, setBookings] = useState([]);
   const [loading, setLoading] = useState(true);
 
@@ -1149,7 +1338,13 @@ export function Bookings() {
         <h2>Previous Bookings</h2>
         {!loading && past.length > 0 ? (
           past.map((b) => (
-            <BookingRow key={b._id || b.id} booking={b} previous onReview={() => setReviewBooking(b)} />
+            <BookingRow
+              key={b._id || b.id}
+              booking={b}
+              previous
+              onReview={() => setReviewBooking(b)}
+              onRebook={() => setRebookTarget(b)}
+            />
           ))
         ) : !loading ? (
           <div style={{ background: '#f8fafc', padding: '28px 20px', textAlign: 'center', borderRadius: '12px', border: '1px solid #e2e8f0', margin: '16px 0' }}>
@@ -1161,6 +1356,13 @@ export function Bookings() {
         <ReviewModal
           booking={reviewBooking}
           onClose={() => setReviewBooking(null)}
+          onSuccess={fetchBookings}
+        />
+      )}
+      {rebookTarget && (
+        <RebookModal
+          booking={rebookTarget}
+          onClose={() => setRebookTarget(null)}
           onSuccess={fetchBookings}
         />
       )}

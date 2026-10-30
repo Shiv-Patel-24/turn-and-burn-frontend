@@ -1,11 +1,11 @@
-import { useEffect, useState } from 'react';
-import { FiChevronLeft, FiChevronRight, FiUser, FiDollarSign, FiClock, FiMapPin, FiCheckCircle, FiArrowRight } from 'react-icons/fi';
+import { useEffect, useState, useRef } from 'react';
+import { FiChevronLeft, FiChevronRight, FiUser, FiDollarSign, FiClock, FiMapPin, FiCheckCircle, FiArrowRight, FiCheck, FiX, FiAlertTriangle, FiUpload } from 'react-icons/fi';
 import { TbArrowsRightLeft, TbHourglass } from 'react-icons/tb';
 import { FaStar } from 'react-icons/fa';
 import { IoClose } from 'react-icons/io5';
 import Layout from '../../components/Layout';
 import { DateRangeModal } from '../../components/Search';
-import { Modal } from '../../ui';
+import { Modal, Field, Input, Select } from '../../ui';
 import { SearchField, SortPopover, ListingStatusPopover, VehiclePopover, TripStatusPopover, StatusMenu, Thumb } from './HostShared';
 import { img, fleetThumbs, tripThumbs, hostVehicles, LOREM_SHORT } from '../../data';
 import { navigate } from '../../router';
@@ -227,12 +227,32 @@ function TripCard({ booking, thumb, ending, onOpen }) {
   const dropoffLoc = booking?.dropoff?.location || 'Dropoff location';
   const earnings = booking?.pricing?.total != null ? `$${booking.pricing.total.toFixed(2)}` : '$0.00';
   const duration = booking?.pricing?.numberOfHours ? `${booking.pricing.numberOfHours} hours` : 'Flexible';
-  const carPhoto = booking?.vehicle?.photos?.[0]?.url || thumb;
+  
+  const v = booking?.vehicle;
+  const carPhoto =
+    (v?.photos?.find((p) => p.isPrimary)?.url) ||
+    v?.photos?.[0]?.url ||
+    (typeof v?.photos?.[0] === 'string' ? v.photos[0] : null) ||
+    thumb;
+  const carTitle = v ? `${v.year || ''} ${v.make || ''} ${v.model || ''}`.trim() : '';
+  const carPlate = v?.licensePlate ? `Plate: ${v.licensePlate}` : '';
   const milesIncluded = booking?.pricing?.distanceIncluded ? `${booking.pricing.distanceIncluded} miles` : '800 miles';
+
+  const status = booking?.status || 'pending';
+  const statusColor =
+    status === 'approved'
+      ? { bg: '#dcfce7', fg: '#166534' }
+      : status === 'active'
+      ? { bg: '#dbeafe', fg: '#1e40af' }
+      : status === 'completed'
+      ? { bg: '#f1f5f9', fg: '#475569' }
+      : status === 'cancelled' || status === 'rejected'
+      ? { bg: '#fee2e2', fg: '#991b1b' }
+      : { bg: '#fef3c7', fg: '#92400e' };
 
   return (
     <button type="button" className="trip-card" onClick={onOpen}>
-      <Thumb src={carPhoto} />
+      <Thumb src={carPhoto} carName={carTitle} plate={carPlate} />
       <div className="trip-card__info">
         <div className="trip-card__row">
           <span className="ico-box">
@@ -247,7 +267,19 @@ function TripCard({ booking, thumb, ending, onOpen }) {
             <TbHourglass />
           </span>
           <b>{duration}</b>
-          {ending && <span className="ending">Status: {booking?.status || 'Active'}</span>}
+          <span
+            className="ending"
+            style={{
+              background: statusColor.bg,
+              color: statusColor.fg,
+              fontWeight: 700,
+              textTransform: 'uppercase',
+              fontSize: 12,
+              padding: '6px 14px',
+            }}
+          >
+            Status: {status}
+          </span>
         </div>
         <div className="trip-card__row">
           <span className="ico-box">
@@ -268,21 +300,454 @@ function TripCard({ booking, thumb, ending, onOpen }) {
   );
 }
 
+function AssignChauffeurModal({ booking, onClose, onSuccess }) {
+  const [name, setName] = useState(booking?.chauffeurAssigned?.name || '');
+  const [phone, setPhone] = useState(booking?.chauffeurAssigned?.phone || '');
+  const [loading, setLoading] = useState(false);
+  const [err, setErr] = useState('');
+
+  const handleSave = async () => {
+    if (!name.trim() || !phone.trim()) {
+      setErr('Please enter both chauffeur name and phone number.');
+      return;
+    }
+    setLoading(true);
+    setErr('');
+    try {
+      const id = booking._id || booking.id;
+      const res = await apiRequest(`/bookings/${id}/chauffeur`, {
+        method: 'POST',
+        body: { name: name.trim(), phone: phone.trim() },
+      });
+      onSuccess && onSuccess(res?.data);
+      onClose();
+    } catch (e) {
+      setErr(e.message || 'Failed to assign chauffeur');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <Modal onClose={onClose} width={440}>
+      <div className="modal__head">
+        <h2 className="modal__title">Assign Chauffeur</h2>
+        <button type="button" className="icon-btn" aria-label="Close" onClick={onClose}>
+          <IoClose size={26} />
+        </button>
+      </div>
+      <p style={{ color: '#64748b', fontSize: 14, marginBottom: 16 }}>
+        Assign a dedicated driver for reservation <strong>#{booking?.referenceCode || (booking?._id || '').slice(-6).toUpperCase()}</strong>.
+      </p>
+      {err && (
+        <div style={{ padding: '10px 14px', background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 8, color: '#dc2626', marginBottom: 14, fontSize: 14 }}>
+          {err}
+        </div>
+      )}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+        <Field label="Chauffeur Full Name">
+          <Input placeholder="e.g. Michael Vance" value={name} onChange={(e) => setName(e.target.value)} />
+        </Field>
+        <Field label="Contact Phone Number">
+          <Input placeholder="e.g. +1 555-019-2834" value={phone} onChange={(e) => setPhone(e.target.value)} />
+        </Field>
+      </div>
+      <div style={{ marginTop: 22, display: 'flex', gap: 12, justifyContent: 'flex-end' }}>
+        <button type="button" className="btn btn-outline" disabled={loading} onClick={onClose}>
+          Cancel
+        </button>
+        <button type="button" className="btn btn-primary" disabled={loading} onClick={handleSave}>
+          {loading ? 'Assigning...' : 'Save Chauffeur'}
+        </button>
+      </div>
+    </Modal>
+  );
+}
+
+function RecordOdometerModal({ booking, onClose, onSuccess }) {
+  const isStart = booking?.odometerStart == null;
+  const [phase, setPhase] = useState(isStart ? 'start' : 'end');
+  const [value, setValue] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [err, setErr] = useState('');
+
+  const handleSave = async () => {
+    const num = Number(value);
+    if (!value || isNaN(num) || num < 0) {
+      setErr('Please enter a valid non-negative odometer mileage reading.');
+      return;
+    }
+    setLoading(true);
+    setErr('');
+    try {
+      const id = booking._id || booking.id;
+      const res = await apiRequest(`/bookings/${id}/odometer`, {
+        method: 'POST',
+        body: { phase, value: num },
+      });
+      onSuccess && onSuccess(res?.data);
+      onClose();
+    } catch (e) {
+      setErr(e.message || 'Failed to record odometer reading');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <Modal onClose={onClose} width={440}>
+      <div className="modal__head">
+        <h2 className="modal__title">Record Trip Odometer</h2>
+        <button type="button" className="icon-btn" aria-label="Close" onClick={onClose}>
+          <IoClose size={26} />
+        </button>
+      </div>
+      <p style={{ color: '#64748b', fontSize: 14, marginBottom: 16 }}>
+        Track mileage before and after the rental for accurate extra-mileage reporting.
+      </p>
+      {err && (
+        <div style={{ padding: '10px 14px', background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 8, color: '#dc2626', marginBottom: 14, fontSize: 14 }}>
+          {err}
+        </div>
+      )}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+        <Field label="Trip Phase">
+          <Select
+            value={phase}
+            onChange={setPhase}
+            options={['start', 'end']}
+          />
+        </Field>
+        {booking?.odometerStart != null && (
+          <p style={{ fontSize: 13, color: '#64748b', margin: '-6px 0 4px' }}>
+            Starting reading recorded: <strong>{booking.odometerStart.toLocaleString()} miles</strong>
+          </p>
+        )}
+        <Field label={`${phase === 'start' ? 'Start' : 'End'} Mileage Reading (miles)`}>
+          <Input
+            type="number"
+            placeholder="e.g. 14250"
+            value={value}
+            onChange={(e) => setValue(e.target.value)}
+          />
+        </Field>
+      </div>
+      <div style={{ marginTop: 22, display: 'flex', gap: 12, justifyContent: 'flex-end' }}>
+        <button type="button" className="btn btn-outline" disabled={loading} onClick={onClose}>
+          Cancel
+        </button>
+        <button type="button" className="btn btn-primary" disabled={loading} onClick={handleSave}>
+          {loading ? 'Saving...' : 'Record Mileage'}
+        </button>
+      </div>
+    </Modal>
+  );
+}
+
+function ReportDamageModal({ booking, onClose, onSuccess }) {
+  const [damageType, setDamageType] = useState('Body Scratch');
+  const [severity, setSeverity] = useState('Minor');
+  const [description, setDescription] = useState('');
+  const [photos, setPhotos] = useState([]);
+  const [uploading, setUploading] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [err, setErr] = useState('');
+  const fileInputRef = useRef(null);
+
+  const handleFileUpload = async (e) => {
+    const files = Array.from(e.target.files || []);
+    if (!files.length) return;
+    setUploading(true);
+    try {
+      const fd = new FormData();
+      files.forEach((f) => fd.append('files', f));
+      const res = await apiRequest('/uploads?folder=damage', {
+        method: 'POST',
+        body: fd,
+      });
+      const urls = res?.data?.urls || [];
+      setPhotos((prev) => [...prev, ...urls]);
+    } catch (uErr) {
+      console.warn('Damage photo upload error:', uErr.message);
+    } finally {
+      setUploading(false);
+      e.target.value = '';
+    }
+  };
+
+  const handleSave = async () => {
+    if (!description.trim()) {
+      setErr('Please provide a description of the observed damage.');
+      return;
+    }
+    setLoading(true);
+    setErr('');
+    try {
+      const id = booking._id || booking.id;
+      const res = await apiRequest(`/bookings/${id}/damage-report`, {
+        method: 'POST',
+        body: {
+          damageType,
+          severity,
+          description: description.trim(),
+          photoUrls: photos,
+        },
+      });
+      onSuccess && onSuccess(res?.data);
+      onClose();
+    } catch (e) {
+      setErr(e.message || 'Failed to submit damage report');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <Modal onClose={onClose} width={480}>
+      <div className="modal__head">
+        <h2 className="modal__title">Report Vehicle Damage</h2>
+        <button type="button" className="icon-btn" aria-label="Close" onClick={onClose}>
+          <IoClose size={26} />
+        </button>
+      </div>
+      <p style={{ color: '#64748b', fontSize: 14, marginBottom: 16 }}>
+        Submit photo evidence and details for review by Turn and Burn Trust & Safety.
+      </p>
+      {err && (
+        <div style={{ padding: '10px 14px', background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 8, color: '#dc2626', marginBottom: 14, fontSize: 14 }}>
+          {err}
+        </div>
+      )}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+        <Field label="Damage Category">
+          <Select
+            value={damageType}
+            onChange={setDamageType}
+            options={['Body Scratch', 'Glass Damage', 'Interior Damage', 'Missing Part', 'Underbody / Tire', 'Incidental', 'Other']}
+          />
+        </Field>
+        <Field label="Severity">
+          <Select
+            value={severity}
+            onChange={setSeverity}
+            options={['Minor', 'Moderate', 'Major']}
+          />
+        </Field>
+        <Field label="Description">
+          <textarea
+            className="input textarea"
+            rows={3}
+            placeholder="Describe the damage, location on vehicle, and circumstances..."
+            value={description}
+            onChange={(e) => setDescription(e.target.value)}
+          />
+        </Field>
+        <div>
+          <label className="field__label" style={{ display: 'block', marginBottom: 6 }}>
+            Damage Photos ({photos.length} uploaded)
+          </label>
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="image/*"
+            multiple
+            style={{ display: 'none' }}
+            onChange={handleFileUpload}
+          />
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+            {photos.map((u, i) => (
+              <img
+                key={i}
+                src={u}
+                alt="Damage proof"
+                style={{ width: 56, height: 56, borderRadius: 6, objectFit: 'cover', border: '1px solid #cbd5e1' }}
+              />
+            ))}
+            <button
+              type="button"
+              className="btn btn-outline"
+              style={{ height: 56, padding: '0 14px', fontSize: 13 }}
+              disabled={uploading}
+              onClick={() => fileInputRef.current?.click()}
+            >
+              <FiUpload size={14} style={{ marginRight: 6 }} />
+              {uploading ? 'Uploading...' : 'Add Photos'}
+            </button>
+          </div>
+        </div>
+      </div>
+      <div style={{ marginTop: 22, display: 'flex', gap: 12, justifyContent: 'flex-end' }}>
+        <button type="button" className="btn btn-outline" disabled={loading} onClick={onClose}>
+          Cancel
+        </button>
+        <button type="button" className="btn btn-primary" disabled={loading} onClick={handleSave}>
+          {loading ? 'Submitting...' : 'File Damage Report'}
+        </button>
+      </div>
+    </Modal>
+  );
+}
+
+/* Modal: Report Issue (POST /bookings/:id/issue-report) */
+function ReportIssueModal({ booking, onClose, onSuccess }) {
+  const [category, setCategory] = useState('Mechanical');
+  const [description, setDescription] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [err, setErr] = useState('');
+
+  const handleSave = async () => {
+    if (!description.trim()) {
+      setErr('Please describe the issue observed.');
+      return;
+    }
+    setLoading(true);
+    setErr('');
+    try {
+      const id = booking._id || booking.id;
+      const res = await apiRequest(`/bookings/${id}/issue-report`, {
+        method: 'POST',
+        body: { category, description: description.trim() },
+      });
+      onSuccess && onSuccess(res?.data);
+      onClose();
+    } catch (e) {
+      setErr(e.message || 'Failed to submit issue report');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <Modal onClose={onClose} width={440}>
+      <div className="modal__head">
+        <h2 className="modal__title">Report An Issue</h2>
+        <button type="button" className="icon-btn" aria-label="Close" onClick={onClose}>
+          <IoClose size={26} />
+        </button>
+      </div>
+      <p style={{ color: '#64748b', fontSize: 14, marginBottom: 16 }}>
+        Report non-damage issues such as cleanliness, tardiness, mechanical alerts, or safety concerns.
+      </p>
+      {err && (
+        <div style={{ padding: '10px 14px', background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 8, color: '#dc2626', marginBottom: 14, fontSize: 14 }}>
+          {err}
+        </div>
+      )}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+        <Field label="Issue Category">
+          <Select
+            value={category}
+            onChange={setCategory}
+            options={['Mechanical', 'Cleanliness', 'Late Return', 'Safety', 'Fuel Level', 'Other']}
+          />
+        </Field>
+        <Field label="Description">
+          <textarea
+            className="input textarea"
+            rows={3}
+            placeholder="Details about what happened..."
+            value={description}
+            onChange={(e) => setDescription(e.target.value)}
+          />
+        </Field>
+      </div>
+      <div style={{ marginTop: 22, display: 'flex', gap: 12, justifyContent: 'flex-end' }}>
+        <button type="button" className="btn btn-outline" disabled={loading} onClick={onClose}>
+          Cancel
+        </button>
+        <button type="button" className="btn btn-primary" disabled={loading} onClick={handleSave}>
+          {loading ? 'Submitting...' : 'Submit Issue'}
+        </button>
+      </div>
+    </Modal>
+  );
+}
+
+function IncidentalChargeModal({ booking, onClose, onSuccess }) {
+  const [description, setDescription] = useState('Fuel charge');
+  const [amount, setAmount] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [err, setErr] = useState('');
+
+  const handleSave = async () => {
+    const num = Number(amount);
+    if (!amount || isNaN(num) || num <= 0) {
+      setErr('Please enter a valid positive dollar amount.');
+      return;
+    }
+    setLoading(true);
+    setErr('');
+    try {
+      const id = booking._id || booking.id;
+      const res = await apiRequest(`/bookings/${id}/incidental-charge`, {
+        method: 'POST',
+        body: { description: description.trim(), amount: num },
+      });
+      onSuccess && onSuccess(res?.data);
+      onClose();
+    } catch (e) {
+      setErr(e.message || 'Failed to submit incidental charge');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <Modal onClose={onClose} width={440}>
+      <div className="modal__head">
+        <h2 className="modal__title">Charge for Incidentals</h2>
+        <button type="button" className="icon-btn" aria-label="Close" onClick={onClose}>
+          <IoClose size={26} />
+        </button>
+      </div>
+      <p style={{ color: '#64748b', fontSize: 14, marginBottom: 16 }}>
+        Charge guest for fuel refill, unpaid tolls, or cleaning fees.
+      </p>
+      {err && (
+        <div style={{ padding: '10px 14px', background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 8, color: '#dc2626', marginBottom: 14, fontSize: 14 }}>
+          {err}
+        </div>
+      )}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+        <Field label="Charge Description">
+          <Input placeholder="e.g. Fuel Refill, Tolls, Cleaning" value={description} onChange={(e) => setDescription(e.target.value)} />
+        </Field>
+        <Field label="Amount ($)">
+          <Input type="number" placeholder="e.g. 45.00" value={amount} onChange={(e) => setAmount(e.target.value)} />
+        </Field>
+      </div>
+      <div style={{ marginTop: 22, display: 'flex', gap: 12, justifyContent: 'flex-end' }}>
+        <button type="button" className="btn btn-outline" disabled={loading} onClick={onClose}>
+          Cancel
+        </button>
+        <button type="button" className="btn btn-primary" disabled={loading} onClick={handleSave}>
+          {loading ? 'Submitting...' : 'Apply Charge'}
+        </button>
+      </div>
+    </Modal>
+  );
+}
+
 /* Figma: "MacBook Pro 14 - 42" (Booked trip) / "MacBook Pro 14 - 44" (Trip history) drawers */
-function TripDrawer({ booking, history, onClose }) {
-  const guestName = booking?.guest ? `${booking.guest.firstName || ''} ${booking.guest.lastName || ''}`.trim() : 'Guest';
-  const pickupLoc = booking?.pickup?.location || 'Pickup location';
-  const dropoffLoc = booking?.dropoff?.location || 'Dropoff location';
-  const earnings = booking?.pricing?.total != null ? `$${booking.pricing.total.toFixed(2)}` : '$0.00';
-  const pickupDate = booking?.pickup?.dateTime ? new Date(booking.pickup.dateTime) : null;
-  const dropoffDate = booking?.dropoff?.dateTime ? new Date(booking.dropoff.dateTime) : null;
+function TripDrawer({ booking, history, onClose, onRefresh }) {
+  const [activeBooking, setActiveBooking] = useState(booking);
+  const [modal, setModal] = useState(null); // 'chauffeur' | 'odometer' | 'damage' | 'issue' | 'incidental'
+  const [statusLoading, setStatusLoading] = useState(false);
+  const [statusMsg, setStatusMsg] = useState('');
+
+  const guestName = activeBooking?.guest ? `${activeBooking.guest.firstName || ''} ${activeBooking.guest.lastName || ''}`.trim() : 'Guest';
+  const pickupLoc = activeBooking?.pickup?.location || 'Pickup location';
+  const dropoffLoc = activeBooking?.dropoff?.location || 'Dropoff location';
+  const earnings = activeBooking?.pricing?.total != null ? `$${activeBooking.pricing.total.toFixed(2)}` : '$0.00';
+  const pickupDate = activeBooking?.pickup?.dateTime ? new Date(activeBooking.pickup.dateTime) : null;
+  const dropoffDate = activeBooking?.dropoff?.dateTime ? new Date(activeBooking.dropoff.dateTime) : null;
   const pickupTime = pickupDate ? pickupDate.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' }) : 'Flexible';
   const dropoffTime = dropoffDate ? dropoffDate.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' }) : 'Flexible';
   const pickupClock = pickupDate ? pickupDate.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }) : '12:00 PM';
   const dropoffClock = dropoffDate ? dropoffDate.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }) : '12:00 PM';
 
-  const milesIncluded = booking?.pricing?.distanceIncluded ? `${booking.pricing.distanceIncluded} miles` : 'Unlimited miles';
-  const milesDriven = booking?.totalMilesDriven != null ? `${booking.totalMilesDriven} miles` : '0 miles';
+  const milesIncluded = activeBooking?.pricing?.distanceIncluded ? `${activeBooking.pricing.distanceIncluded} miles` : 'Unlimited miles';
+  const milesDriven = activeBooking?.totalMilesDriven != null ? `${activeBooking.totalMilesDriven} miles` : '0 miles';
 
   // Calculate remaining hours if trip is active
   let hoursLeftText = '';
@@ -291,98 +756,291 @@ function TripDrawer({ booking, history, onClose }) {
     hoursLeftText = diffHours > 0 ? `This trip ends in ~${diffHours} hours` : 'Trip completed or awaiting return';
   }
 
+  const handleStatusTransition = async (newStatus, reason = '') => {
+    setStatusLoading(true);
+    setStatusMsg('');
+    try {
+      const id = activeBooking._id || activeBooking.id;
+      const res = await apiRequest(`/bookings/${id}/status`, {
+        method: 'PATCH',
+        body: { status: newStatus, cancellationReason: reason },
+      });
+      if (res?.data) {
+        setActiveBooking(res.data);
+        setStatusMsg(`Status updated to ${newStatus.toUpperCase()}`);
+        onRefresh && onRefresh();
+      }
+    } catch (err) {
+      alert(err.message || 'Could not update status');
+    } finally {
+      setStatusLoading(false);
+    }
+  };
+
+  const currentStatus = activeBooking?.status || 'pending';
+
   return (
-    <Modal onClose={onClose} width={500} className="drawer" align="right">
-      <div className="drawer__head">
-        <h2>{history ? 'Trip history' : 'Booked trip'}</h2>
-        <button type="button" className="icon-btn" aria-label="Close" onClick={onClose}>
-          <IoClose size={28} />
-        </button>
-      </div>
-      <h4>CLIENTS DETAILS</h4>
-      <div className="client">
-        <div className="client__avatar">
-          <img src={booking?.guest?.profilePhotoUrl || img('client.jpg')} alt="" />
-          <span>
-            5.0 <FaStar color="#FDB022" />
-          </span>
+    <>
+      <Modal onClose={onClose} width={500} className="drawer" align="right">
+        <div className="drawer__head">
+          <h2>{history ? 'Trip history' : 'Booked trip'}</h2>
+          <button type="button" className="icon-btn" aria-label="Close" onClick={onClose}>
+            <IoClose size={28} />
+          </button>
         </div>
-        <div>
-          <p>
-            {guestName} {booking?.guest?.phone && <a href={`tel:${booking.guest.phone}`}>({booking.guest.phone})</a>}
-          </p>
-          <p>Reference: {booking?.referenceCode || `#BK-${(booking?._id || '0000').slice(-6).toUpperCase()}`}</p>
-          <p>Status: <span style={{ textTransform: 'capitalize' }}>{booking?.status || 'Active'}</span></p>
+        <h4>CLIENTS DETAILS</h4>
+        <div className="client">
+          <div className="client__avatar">
+            {activeBooking?.guest?.profilePhotoUrl ? (
+              <img src={activeBooking.guest.profilePhotoUrl} alt="" />
+            ) : (
+              <div style={{ width: 60, height: 60, borderRadius: '50%', background: '#e2e8f0', display: 'grid', placeItems: 'center' }}>
+                <FiUser size={30} color="#64748b" />
+              </div>
+            )}
+            <span>
+              5.0 <FaStar color="#FDB022" />
+            </span>
+          </div>
+          <div>
+            <p>
+              {guestName} {activeBooking?.guest?.phone && <a href={`tel:${activeBooking.guest.phone}`}>({activeBooking.guest.phone})</a>}
+            </p>
+            <p>Reference: {activeBooking?.referenceCode || `#BK-${(activeBooking?._id || '0000').slice(-6).toUpperCase()}`}</p>
+            <p>
+              Status:{' '}
+              <span
+                style={{
+                  textTransform: 'uppercase',
+                  fontWeight: 700,
+                  fontSize: 12,
+                  padding: '2px 8px',
+                  borderRadius: 4,
+                  background: currentStatus === 'approved' ? '#dcfce7' : currentStatus === 'active' ? '#dbeafe' : currentStatus === 'completed' ? '#f1f5f9' : '#fef3c7',
+                  color: currentStatus === 'approved' ? '#166534' : currentStatus === 'active' ? '#1e40af' : currentStatus === 'completed' ? '#475569' : '#92400e',
+                }}
+              >
+                {currentStatus}
+              </span>
+            </p>
+          </div>
         </div>
-      </div>
-      <h4>VERIFIED INFO</h4>
-      {['Approved to drive', 'Email address', 'Phone number'].map((v) => (
-        <p className="verified" key={v}>
-          {v} <FiCheckCircle color="#0075ff" size={22} />
-        </p>
-      ))}
-      <hr />
-      <h4>TRIP DETAILS</h4>
-      <div className="trip-dates">
-        <div>
-          <b>{pickupTime}</b>
-          <small>{pickupClock}</small>
-        </div>
-        <FiArrowRight size={40} strokeWidth={1.4} />
-        <div>
-          <b>{dropoffTime}</b>
-          <small>{dropoffClock}</small>
-        </div>
-      </div>
-      <div className="route route--lg">
-        <p>
-          <i className="route__dot" /> {pickupLoc}
-        </p>
-        <p>
-          <FiMapPin className="route__pin" /> {dropoffLoc}
-        </p>
-      </div>
-      <div className="trip-facts">
-        <div>
-          <h4>TOTAL MILES INCLUDED</h4>
-          <p>{milesIncluded}</p>
-        </div>
-        <div>
-          <h4>TOTAL MILES DRIVEN</h4>
-          <p>{milesDriven}</p>
-        </div>
-        <div>
-          <h4>TOTAL EARNINGS</h4>
-          <p>{earnings}</p>
-        </div>
-        <div>
-          <h4>CANCELATION POLICY</h4>
-          <p>{booking?.cancellationPolicy || 'Standard cancellation policy'}</p>
-        </div>
-      </div>
-      <div className="drawer__box">
-        {history ? (
-          <>
-            <button type="button" className="btn btn-outline btn-block">
-              Charge for incidentals
-            </button>
-            <button type="button" className="btn btn-outline btn-block">
-              Report issue
-            </button>
-            <button type="button" className="btn btn-outline btn-block">
-              Report damage
-            </button>
-          </>
-        ) : (
-          <>
-            {hoursLeftText && <p>{hoursLeftText}</p>}
-            <button type="button" className="btn btn-outline btn-block" disabled>
-              Report damage
-            </button>
-          </>
+
+        {activeBooking?.chauffeurAssigned?.name && (
+          <div style={{ background: '#f8fafc', padding: '10px 14px', borderRadius: 8, margin: '8px 0', border: '1px solid #e2e8f0', fontSize: 13 }}>
+            <strong>Assigned Chauffeur:</strong> {activeBooking.chauffeurAssigned.name} ({activeBooking.chauffeurAssigned.phone})
+          </div>
         )}
-      </div>
-    </Modal>
+
+        {statusMsg && (
+          <div style={{ padding: '8px 12px', background: '#dcfce7', color: '#166534', borderRadius: 6, fontSize: 13, marginBottom: 12 }}>
+            ✓ {statusMsg}
+          </div>
+        )}
+
+        <div style={{ display: 'flex', gap: 8, margin: '14px 0', flexWrap: 'wrap' }}>
+          {currentStatus === 'pending' && (
+            <>
+              <button
+                type="button"
+                className="btn btn-primary"
+                style={{ flex: 1, padding: '10px', fontSize: 13 }}
+                disabled={statusLoading}
+                onClick={() => handleStatusTransition('approved')}
+              >
+                <FiCheck size={14} style={{ marginRight: 4 }} /> Approve
+              </button>
+              <button
+                type="button"
+                className="btn btn-outline"
+                style={{ flex: 1, padding: '10px', fontSize: 13, color: '#dc2626', borderColor: '#fca5a5' }}
+                disabled={statusLoading}
+                onClick={() => {
+                  const r = prompt('Decline reason (optional):');
+                  if (r !== null) handleStatusTransition('rejected', r);
+                }}
+              >
+                <FiX size={14} style={{ marginRight: 4 }} /> Decline
+              </button>
+            </>
+          )}
+
+          {currentStatus === 'approved' && (
+            <>
+              <button
+                type="button"
+                className="btn btn-primary"
+                style={{ flex: 1, padding: '10px', fontSize: 13 }}
+                disabled={statusLoading}
+                onClick={() => handleStatusTransition('active')}
+              >
+                Start Trip
+              </button>
+              <button
+                type="button"
+                className="btn btn-outline"
+                style={{ flex: 1, padding: '10px', fontSize: 13, color: '#dc2626', borderColor: '#fca5a5' }}
+                disabled={statusLoading}
+                onClick={() => {
+                  const r = prompt('Cancellation reason:');
+                  if (r) handleStatusTransition('cancelled', r);
+                }}
+              >
+                Cancel Trip
+              </button>
+            </>
+          )}
+
+          {currentStatus === 'active' && (
+            <>
+              <button
+                type="button"
+                className="btn btn-primary"
+                style={{ flex: 1, padding: '10px', fontSize: 13, background: '#16a34a', borderColor: '#16a34a' }}
+                disabled={statusLoading}
+                onClick={() => handleStatusTransition('completed')}
+              >
+                Complete Trip
+              </button>
+            </>
+          )}
+        </div>
+
+        <h4>VERIFIED INFO</h4>
+        {['Approved to drive', 'Email address', 'Phone number'].map((v) => (
+          <p className="verified" key={v}>
+            {v} <FiCheckCircle color="#0075ff" size={22} />
+          </p>
+        ))}
+        <hr />
+        <h4>TRIP DETAILS</h4>
+        <div className="trip-dates">
+          <div>
+            <b>{pickupTime}</b>
+            <small>{pickupClock}</small>
+          </div>
+          <FiArrowRight size={40} strokeWidth={1.4} />
+          <div>
+            <b>{dropoffTime}</b>
+            <small>{dropoffClock}</small>
+          </div>
+        </div>
+        <div className="route route--lg">
+          <p>
+            <i className="route__dot" /> {pickupLoc}
+          </p>
+          <p>
+            <FiMapPin className="route__pin" /> {dropoffLoc}
+          </p>
+        </div>
+        <div className="trip-facts">
+          <div>
+            <h4>TOTAL MILES INCLUDED</h4>
+            <p>{milesIncluded}</p>
+          </div>
+          <div>
+            <h4>TOTAL MILES DRIVEN</h4>
+            <p>{milesDriven}</p>
+          </div>
+          <div>
+            <h4>TOTAL EARNINGS</h4>
+            <p>{earnings}</p>
+          </div>
+          <div>
+            <h4>CANCELATION POLICY</h4>
+            <p>{activeBooking?.cancellationPolicy || 'Standard cancellation policy'}</p>
+          </div>
+        </div>
+        <div className="drawer__box" style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          <button
+            type="button"
+            className="btn btn-outline btn-block"
+            onClick={() => setModal('odometer')}
+          >
+            Record Odometer / Mileage
+          </button>
+          <button
+            type="button"
+            className="btn btn-outline btn-block"
+            onClick={() => setModal('chauffeur')}
+          >
+            {activeBooking?.chauffeurAssigned?.name ? 'Change Chauffeur' : 'Assign Chauffeur'}
+          </button>
+          <button
+            type="button"
+            className="btn btn-outline btn-block"
+            onClick={() => setModal('incidental')}
+          >
+            Charge for Incidentals
+          </button>
+          <button
+            type="button"
+            className="btn btn-outline btn-block"
+            onClick={() => setModal('issue')}
+          >
+            Report Issue
+          </button>
+          <button
+            type="button"
+            className="btn btn-outline btn-block"
+            onClick={() => setModal('damage')}
+          >
+            Report Damage
+          </button>
+        </div>
+      </Modal>
+
+      {modal === 'chauffeur' && (
+        <AssignChauffeurModal
+          booking={activeBooking}
+          onClose={() => setModal(null)}
+          onSuccess={(upd) => {
+            if (upd) setActiveBooking(upd);
+            onRefresh && onRefresh();
+          }}
+        />
+      )}
+      {modal === 'odometer' && (
+        <RecordOdometerModal
+          booking={activeBooking}
+          onClose={() => setModal(null)}
+          onSuccess={(upd) => {
+            if (upd) setActiveBooking(upd);
+            onRefresh && onRefresh();
+          }}
+        />
+      )}
+      {modal === 'damage' && (
+        <ReportDamageModal
+          booking={activeBooking}
+          onClose={() => setModal(null)}
+          onSuccess={(upd) => {
+            if (upd) setActiveBooking(upd);
+            onRefresh && onRefresh();
+          }}
+        />
+      )}
+      {modal === 'issue' && (
+        <ReportIssueModal
+          booking={activeBooking}
+          onClose={() => setModal(null)}
+          onSuccess={(upd) => {
+            if (upd) setActiveBooking(upd);
+            onRefresh && onRefresh();
+          }}
+        />
+      )}
+      {modal === 'incidental' && (
+        <IncidentalChargeModal
+          booking={activeBooking}
+          onClose={() => setModal(null)}
+          onSuccess={(upd) => {
+            if (upd) setActiveBooking(upd);
+            onRefresh && onRefresh();
+          }}
+        />
+      )}
+    </>
   );
 }
 
@@ -393,7 +1051,7 @@ export function HostTrips({ tab = 'booked' }) {
   const [loading, setLoading] = useState(true);
   const history = tab === 'history';
 
-  useEffect(() => {
+  const fetchTrips = () => {
     let active = true;
     setLoading(true);
     const scope = history ? 'previous' : 'current';
@@ -403,16 +1061,25 @@ export function HostTrips({ tab = 'booked' }) {
         const list = res?.data || [];
         if (Array.isArray(list)) {
           setServerBookings(list);
+          // If drawer is currently open, keep active booking state in sync
+          setSelectedBooking((prev) => {
+            if (!prev) return null;
+            const updated = list.find((b) => (b._id || b.id) === (prev._id || prev.id));
+            return updated || prev;
+          });
         }
       })
       .catch((err) => console.warn('Could not fetch host bookings from server:', err.message))
       .finally(() => {
         if (active) setLoading(false);
       });
-
     return () => {
       active = false;
     };
+  };
+
+  useEffect(() => {
+    return fetchTrips();
   }, [history]);
 
   return (
@@ -454,7 +1121,7 @@ export function HostTrips({ tab = 'booked' }) {
               <TripCard
                 key={b._id || b.id}
                 booking={b}
-                thumb={b.vehicle?.photos?.[0]?.url || b.vehicle?.photos?.[0] || img('trip-0.jpg')}
+                thumb={b.vehicle?.photos?.[0]?.url || b.vehicle?.photos?.[0] || ''}
                 ending={!history}
                 onOpen={() => setSelectedBooking(b)}
               />
@@ -462,7 +1129,14 @@ export function HostTrips({ tab = 'booked' }) {
           </div>
         )}
       </div>
-      {selectedBooking && <TripDrawer booking={selectedBooking} history={history} onClose={() => setSelectedBooking(null)} />}
+      {selectedBooking && (
+        <TripDrawer
+          booking={selectedBooking}
+          history={history}
+          onClose={() => setSelectedBooking(null)}
+          onRefresh={fetchTrips}
+        />
+      )}
     </Layout>
   );
 }
