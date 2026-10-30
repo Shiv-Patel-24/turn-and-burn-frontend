@@ -1,9 +1,10 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { FiChevronDown, FiSearch, FiMoreVertical, FiCheck } from 'react-icons/fi';
 import { IoCarSportOutline } from 'react-icons/io5';
 import { TbArrowsSort, TbFilter } from 'react-icons/tb';
 import { Popover, Checkbox, Radio } from '../../ui';
 import { fleetThumbs } from '../../data';
+import { apiRequest } from '../../lib/api';
 
 export function SearchField({ value, onChange, placeholder = 'Model name, license plate number...', className = '' }) {
   return (
@@ -118,21 +119,79 @@ export function TripStatusPopover() {
 }
 
 /* Figma: "Frame 2147239886" — Vehicle picker */
-export function VehiclePopover() {
-  const [sel, setSel] = useState(fleetThumbs.map(() => true));
+export function VehiclePopover({ selectedVehicles, onSelectionChange }) {
+  const [vehicles, setVehicles] = useState([]);
+  const [selectedIds, setSelectedIds] = useState([]);
+
+  useEffect(() => {
+    let active = true;
+    apiRequest('/vehicles')
+      .then((res) => {
+        if (!active) return;
+        const list = res?.data || [];
+        if (Array.isArray(list)) {
+          setVehicles(list);
+          setSelectedIds(list.map((v) => v._id || v.id));
+        }
+      })
+      .catch(() => {
+        setVehicles([]);
+        setSelectedIds([]);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  const toggleOne = (id) => {
+    setSelectedIds((prev) =>
+      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
+    );
+  };
+
+  const handleApply = (close) => {
+    if (onSelectionChange) onSelectionChange(selectedIds);
+    close();
+  };
+
   return (
-    <Popover align="right" width={524} trigger={({ toggle }) => <ToolButton icon={<IoCarSportOutline size={22} />} label="Vehicle" onClick={toggle} />}>
+    <Popover align="right" width={480} trigger={({ toggle }) => <ToolButton icon={<IoCarSportOutline size={22} />} label="Vehicle" onClick={toggle} />}>
       {({ close }) => (
         <div className="pop-list">
           <div className="veh-pick">
-            {fleetThumbs.map((t, i) => (
-              <button type="button" key={i} className="veh-pick__row" style={{ backgroundImage: `url(${t})` }} onClick={() => setSel(sel.map((s, k) => (k === i ? !s : s)))}>
-                <span />
-                <i className={sel[i] ? 'is-on' : ''}>{sel[i] && <FiCheck size={20} strokeWidth={3} />}</i>
-              </button>
-            ))}
+            {vehicles.map((v, i) => {
+              const vId = v._id || v.id || i;
+              const photo = v.photos?.[0]?.url || v.photos?.[0] || v.photo || fleetThumbs[i % fleetThumbs.length];
+              const title = v.name || `${v.year || ''} ${v.make || ''} ${v.model || ''}`.trim() || `Vehicle #${i + 1}`;
+              const plate = v.licensePlate ? `Plate: ${v.licensePlate}` : '';
+              const isChecked = selectedIds.includes(vId);
+
+              return (
+                <button
+                  type="button"
+                  key={vId}
+                  className="veh-pick__row"
+                  style={{ backgroundImage: `url(${photo})` }}
+                  onClick={() => toggleOne(vId)}
+                >
+                  <div style={{ position: 'relative', zIndex: 1, textShadow: '0 1px 3px rgba(0,0,0,0.8)' }}>
+                    <b style={{ fontSize: 13, fontWeight: 700 }}>{title}</b>
+                    {plate && <small style={{ display: 'block', opacity: 0.9 }}>{plate}</small>}
+                  </div>
+                  <i className={isChecked ? 'is-on' : ''}>
+                    {isChecked && <FiCheck size={18} strokeWidth={3} />}
+                  </i>
+                </button>
+              );
+            })}
           </div>
-          <PopFooter close={close} primary="Show vehicles" onReset={() => setSel(sel.map(() => false))} />
+          <PopFooter
+            close={close}
+            primary="Show vehicles"
+            onReset={() => setSelectedIds([])}
+            onPrimary={() => handleApply(close)}
+          />
         </div>
       )}
     </Popover>
@@ -174,8 +233,15 @@ export function StatusMenu({ status, onChange, small }) {
   );
 }
 
-export function Thumb({ src, small }) {
+export function Thumb({ src, small, carName, plate }) {
   return (
-    <div className={`thumb ${small ? 'thumb--sm' : ''}`} style={{ backgroundImage: `url(${src})` }} role="img" aria-label="Nissan Pathfinder 2025, WB12339A" />
+    <div className={`thumb ${small ? 'thumb--sm' : ''}`} style={{ backgroundImage: `url(${src})` }} role="img" aria-label={carName || 'Vehicle'}>
+      {(carName || plate) && (
+        <span style={{ position: 'relative', zIndex: 1, textShadow: '0 1px 4px rgba(0,0,0,0.85)', background: 'linear-gradient(transparent, rgba(0,0,0,0.75))', width: '100%' }}>
+          {carName && <b>{carName}</b>}
+          {plate && <small>{plate}</small>}
+        </span>
+      )}
+    </div>
   );
 }

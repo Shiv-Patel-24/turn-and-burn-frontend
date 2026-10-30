@@ -5001,8 +5001,10 @@ small.muted {
 .veh-pick {
   display: grid;
   border-radius: 10px;
-  overflow: hidden;
-  margin-top: 26px;
+  overflow-y: auto;
+  max-height: 380px;
+  margin-top: 20px;
+  border: 1px solid #e2e8f0;
 }
 .veh-pick__row {
   height: 80px;
@@ -5011,10 +5013,22 @@ small.muted {
   display: flex;
   justify-content: space-between;
   align-items: flex-end;
-  padding: 8px 8px;
+  padding: 10px 14px;
   color: #fff;
   text-align: left;
   position: relative;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.2);
+  cursor: pointer;
+}
+.veh-pick__row::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(180deg, rgba(0, 0, 0, 0.1) 0%, rgba(0, 0, 0, 0.75) 100%);
+  pointer-events: none;
+}
+.veh-pick__row:hover::before {
+  background: linear-gradient(180deg, rgba(0, 0, 0, 0.2) 0%, rgba(0, 0, 0, 0.85) 100%);
 }
 
 .veh-pick__row span,
