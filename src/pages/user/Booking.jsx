@@ -943,8 +943,41 @@ export function BookingConfirmed() {
 export function ReviewModal({ booking, onClose, onSuccess }) {
   const [r, setR] = useState([5, 5, 5]);
   const [comment, setComment] = useState('');
+  const [photos, setPhotos] = useState([]);
+  const [uploadingPhotos, setUploadingPhotos] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
+
+  const handlePhotoUpload = async (e) => {
+    const files = Array.from(e.target.files || []);
+    if (!files.length) return;
+    if (photos.length + files.length > 10) {
+      setError('You can upload a maximum of 10 photos.');
+      return;
+    }
+    setUploadingPhotos(true);
+    setError('');
+    try {
+      const formData = new FormData();
+      files.forEach((file) => formData.append('files', file));
+      const res = await apiRequest('/uploads?folder=reviews', {
+        method: 'POST',
+        body: formData,
+      });
+      const urls = res?.data?.urls || [];
+      setPhotos((prev) => [...prev, ...urls]);
+    } catch (err) {
+      console.warn('Failed to upload review photos:', err);
+      setError(err?.message || 'Failed to upload photo(s).');
+    } finally {
+      setUploadingPhotos(false);
+      e.target.value = '';
+    }
+  };
+
+  const handleRemovePhoto = (index) => {
+    setPhotos((prev) => prev.filter((_, i) => i !== index));
+  };
 
   const handleSubmit = async () => {
     const bookingId = booking?._id || booking?.id;
@@ -967,6 +1000,7 @@ export function ReviewModal({ booking, onClose, onSuccess }) {
             overallService: r[2],
           },
           comment: comment.trim(),
+          photos,
         },
       });
       if (onSuccess) onSuccess();
@@ -988,16 +1022,56 @@ export function ReviewModal({ booking, onClose, onSuccess }) {
         </div>
       )}
       <div className="review-upload">
-        <label className="review-upload__btn">
+        <label className="review-upload__btn" style={{ opacity: uploadingPhotos ? 0.6 : 1, cursor: uploadingPhotos ? 'not-allowed' : 'pointer' }}>
           <span>
-            <FiCamera size={28} />
+            {uploadingPhotos ? <div className="spinner" style={{ width: 24, height: 24, border: '2px solid #fff', borderTopColor: '#0b3b82' }} /> : <FiCamera size={28} />}
           </span>
-          Update Car Image
-          <input type="file" accept="image/*" hidden />
+          {uploadingPhotos ? 'Uploading...' : 'Update Car Image'}
+          <input type="file" accept="image/*" multiple hidden disabled={uploadingPhotos} onChange={handlePhotoUpload} />
         </label>
-        <i />
-        <i />
-        <i />
+        {[0, 1, 2].map((slotIdx) => {
+          const photoUrl = photos[slotIdx];
+          return photoUrl ? (
+            <div
+              key={slotIdx}
+              style={{
+                position: 'relative',
+                borderRadius: '12px',
+                overflow: 'hidden',
+                height: '108px',
+                border: '1px solid #cbd5e1',
+                background: '#fff',
+              }}
+            >
+              <img src={photoUrl} alt="Review attachment" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+              <button
+                type="button"
+                onClick={() => handleRemovePhoto(slotIdx)}
+                style={{
+                  position: 'absolute',
+                  top: 4,
+                  right: 4,
+                  width: 22,
+                  height: 22,
+                  borderRadius: '50%',
+                  background: 'rgba(0,0,0,0.6)',
+                  color: '#fff',
+                  border: 'none',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  fontSize: 14,
+                  cursor: 'pointer',
+                }}
+                aria-label="Remove photo"
+              >
+                ×
+              </button>
+            </div>
+          ) : (
+            <i key={slotIdx} />
+          );
+        })}
       </div>
       {['Rate Car Condition', 'Rate Chauffer Experience', 'Rate Overall Service'].map((l, i) => (
         <Field label={l} key={l}>
@@ -1015,7 +1089,7 @@ export function ReviewModal({ booking, onClose, onSuccess }) {
           onChange={(e) => setComment(e.target.value)}
         />
       </Field>
-      <button type="button" className="btn btn-primary btn-block btn-lg" disabled={submitting} onClick={handleSubmit}>
+      <button type="button" className="btn btn-primary btn-block btn-lg" disabled={submitting || uploadingPhotos} onClick={handleSubmit}>
         {submitting ? 'Submitting...' : 'Submit Review'}
       </button>
     </Modal>
@@ -1258,9 +1332,11 @@ function BookingRow({ booking, previous, onReview, onRebook }) {
             >
               <FiDownload /> Download Invoice
             </button>
-            <button type="button" className="act" onClick={onReview}>
-              <FiStar /> Add Reviews
-            </button>
+            {booking?.status === 'completed' && (
+              <button type="button" className="act" onClick={onReview}>
+                <FiStar /> Add Reviews
+              </button>
+            )}
           </>
         ) : (
           <>

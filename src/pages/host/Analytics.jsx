@@ -44,7 +44,12 @@ export default function Analytics() {
       if (earnRes?.data) setEarningsData(earnRes.data);
       if (payoutRes?.data) setPayoutsData(payoutRes.data);
       if (perfRes?.data) setPerformanceData(perfRes.data);
-      if (Array.isArray(revRes?.data)) setReviewsData(revRes.data);
+      const revList = Array.isArray(revRes?.data?.reviews)
+        ? revRes.data.reviews
+        : Array.isArray(revRes?.data)
+        ? revRes.data
+        : [];
+      setReviewsData(revList);
       if (sumRes?.data) setReviewSummary(sumRes.data);
       if (Array.isArray(vehRes?.data)) setVehicles(vehRes.data);
     } catch (err) {
@@ -120,6 +125,7 @@ export default function Analytics() {
   ];
 
   const catPercents = reviewSummary?.categoryPercents || {};
+  const starPercents = reviewSummary?.starPercents || {};
   const catsList = [
     ['Maintenance', `${catPercents.maintenance ?? 100}%`],
     ['Cleanliness', `${catPercents.cleanliness ?? 100}%`],
@@ -287,11 +293,11 @@ export default function Analytics() {
                 <b>{reviewSummary?.overallPercent != null ? `${reviewSummary.overallPercent}%` : '100%'}</b>
               </div>
               {[
-                ['5 stars', reviewSummary?.distribution?.[5] ? Math.round((reviewSummary.distribution[5] / (reviewSummary.totalReviews || 1)) * 100) : 100],
-                ['4 stars', reviewSummary?.distribution?.[4] ? Math.round((reviewSummary.distribution[4] / (reviewSummary.totalReviews || 1)) * 100) : 0],
-                ['3 stars', reviewSummary?.distribution?.[3] ? Math.round((reviewSummary.distribution[3] / (reviewSummary.totalReviews || 1)) * 100) : 0],
-                ['2 stars', reviewSummary?.distribution?.[2] ? Math.round((reviewSummary.distribution[2] / (reviewSummary.totalReviews || 1)) * 100) : 0],
-                ['1 stars', reviewSummary?.distribution?.[1] ? Math.round((reviewSummary.distribution[1] / (reviewSummary.totalReviews || 1)) * 100) : 0],
+                ['5 stars', starPercents[5] != null ? starPercents[5] : (reviewSummary?.distribution?.[5] ? Math.round((reviewSummary.distribution[5] / (reviewSummary.totalReviews || 1)) * 100) : 100)],
+                ['4 stars', starPercents[4] != null ? starPercents[4] : (reviewSummary?.distribution?.[4] ? Math.round((reviewSummary.distribution[4] / (reviewSummary.totalReviews || 1)) * 100) : 0)],
+                ['3 stars', starPercents[3] != null ? starPercents[3] : (reviewSummary?.distribution?.[3] ? Math.round((reviewSummary.distribution[3] / (reviewSummary.totalReviews || 1)) * 100) : 0)],
+                ['2 stars', starPercents[2] != null ? starPercents[2] : (reviewSummary?.distribution?.[2] ? Math.round((reviewSummary.distribution[2] / (reviewSummary.totalReviews || 1)) * 100) : 0)],
+                ['1 stars', starPercents[1] != null ? starPercents[1] : (reviewSummary?.distribution?.[1] ? Math.round((reviewSummary.distribution[1] / (reviewSummary.totalReviews || 1)) * 100) : 0)],
               ].map(([l, p]) => (
                 <div className="r-bar" key={l}>
                   <span>{l}</span>
@@ -353,13 +359,13 @@ export default function Analytics() {
                       <p className="rv__car">{vehicleName}</p>
                       <p>{rev.comment || 'Smooth rental experience with this vehicle.'}</p>
 
-                      {rev.hostResponse && (
+                      {(rev.publicResponse?.text || rev.hostResponse?.text) && (
                         <div style={{ background: '#f8fafc', padding: '10px 14px', borderRadius: '8px', borderLeft: '3px solid #2563eb', margin: '8px 0', fontSize: '13px' }}>
-                          <strong style={{ color: '#0f172a' }}>Your response:</strong> {rev.hostResponse.text}
+                          <strong style={{ color: '#0f172a' }}>Your response:</strong> {rev.publicResponse?.text || rev.hostResponse?.text}
                         </div>
                       )}
 
-                      {!rev.hostResponse && activeReviewId !== rev._id && (
+                      {!rev.publicResponse && !rev.hostResponse && activeReviewId !== rev._id && (
                         <button type="button" className="btn-mini" onClick={() => setActiveReviewId(rev._id)}>
                           Leave a public response
                         </button>

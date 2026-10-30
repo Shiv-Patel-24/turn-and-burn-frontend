@@ -47,6 +47,7 @@ export default function CarDetail({ role = 'guest' }) {
   const [similarVehicles, setSimilarVehicles] = useState([]);
   const [similarLoading, setSimilarLoading] = useState(true);
   const [hostListingsCount, setHostListingsCount] = useState(null);
+  const [hostReviewSummary, setHostReviewSummary] = useState(null);
   const isUser = role === 'user';
   const guard = (fn) => () => (isUser ? fn() : open('signup'));
 
@@ -69,6 +70,13 @@ export default function CarDetail({ role = 'guest' }) {
               if (!active) return;
               const count = Array.isArray(hRes?.data) ? hRes.data.length : (hRes?.data?.length || 1);
               setHostListingsCount(count);
+            })
+            .catch(() => {});
+
+          apiRequest(`/reviews/host/${hostId}/summary`)
+            .then((sRes) => {
+              if (!active) return;
+              if (sRes?.data) setHostReviewSummary(sRes.data);
             })
             .catch(() => {});
         }
@@ -96,6 +104,13 @@ export default function CarDetail({ role = 'guest' }) {
                     if (!active) return;
                     const count = Array.isArray(hRes?.data) ? hRes.data.length : (hRes?.data?.length || 1);
                     setHostListingsCount(count);
+                  })
+                  .catch(() => {});
+
+                apiRequest(`/reviews/host/${hostId}/summary`)
+                  .then((sRes) => {
+                    if (!active) return;
+                    if (sRes?.data) setHostReviewSummary(sRes.data);
                   })
                   .catch(() => {});
               }
@@ -236,12 +251,16 @@ export default function CarDetail({ role = 'guest' }) {
   const hostMemberSince = host?.createdAt
     ? `Member since ${new Date(host.createdAt).toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}`
     : 'Member since March 2024';
-  const hostRating = reviewSummary?.averageRating
-    ? Number(reviewSummary.averageRating).toFixed(1)
-    : (vehicle?.rating ? Number(vehicle.rating).toFixed(1) : '4.9');
-  const hostReviewsCount = reviewSummary?.totalReviews !== undefined
-    ? reviewSummary.totalReviews
-    : (vehicleReviews?.length || 23);
+  const hostRating = hostReviewSummary?.average != null
+    ? Number(hostReviewSummary.average).toFixed(1)
+    : (reviewSummary?.averageRating
+      ? Number(reviewSummary.averageRating).toFixed(1)
+      : (vehicle?.rating ? Number(vehicle.rating).toFixed(1) : '4.9'));
+  const hostReviewsCount = hostReviewSummary?.totalReviews !== undefined
+    ? hostReviewSummary.totalReviews
+    : (reviewSummary?.totalReviews !== undefined
+      ? reviewSummary.totalReviews
+      : (vehicleReviews?.length || 23));
   const hostListingsText = hostListingsCount !== null
     ? `${hostListingsCount} active listing${hostListingsCount === 1 ? '' : 's'}`
     : '3 active listings';
