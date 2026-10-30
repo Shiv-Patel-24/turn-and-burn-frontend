@@ -5,10 +5,10 @@ import { TbArrowsSort, TbFilter } from 'react-icons/tb';
 import { Popover, Checkbox, Radio } from '../../ui';
 import { fleetThumbs } from '../../data';
 
-export function SearchField({ placeholder = 'Model name, license plate number...', className = '' }) {
+export function SearchField({ value, onChange, placeholder = 'Model name, license plate number...', className = '' }) {
   return (
     <label className={`tool-search ${className}`}>
-      <input placeholder={placeholder} />
+      <input placeholder={placeholder} value={value || ''} onChange={(e) => onChange && onChange(e.target.value)} />
       <FiSearch size={22} />
     </label>
   );
@@ -62,18 +62,27 @@ export function SortPopover() {
 }
 
 /* Figma: "Frame 2147239885" — Listing status */
-export function ListingStatusPopover() {
-  const [v, setV] = useState({ Listed: true, Unlisted: false, Snoozed: false });
+export function ListingStatusPopover({ value, onChange }) {
+  const current = value || { Listed: true, Unlisted: true, Snoozed: true };
+  const [v, setV] = useState(current);
   return (
     <Popover align="right" width={524} trigger={({ toggle }) => <ToolButton icon={<TbFilter size={22} />} label="Listing Status" onClick={toggle} />}>
       {({ close }) => (
         <div className="pop-list">
           {Object.keys(v).map((k) => (
-            <Checkbox key={k} checked={v[k]} onChange={(c) => setV({ ...v, [k]: c })} className="check--row">
+            <Checkbox key={k} checked={v[k]} onChange={(c) => {
+              const updated = { ...v, [k]: c };
+              setV(updated);
+              if (onChange) onChange(updated);
+            }} className="check--row">
               {k}
             </Checkbox>
           ))}
-          <PopFooter close={close} primary="Show vehicles" onReset={() => setV({ Listed: false, Unlisted: false, Snoozed: false })} />
+          <PopFooter close={close} primary="Show vehicles" onReset={() => {
+            const reset = { Listed: true, Unlisted: true, Snoozed: true };
+            setV(reset);
+            if (onChange) onChange(reset);
+          }} />
         </div>
       )}
     </Popover>

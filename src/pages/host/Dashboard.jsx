@@ -471,10 +471,26 @@ export function HostTrips({ tab = 'booked' }) {
 export function HostVehicles() {
   const [list, setList] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [search, setSearch] = useState('');
+  const [statusFilter, setStatusFilter] = useState({ Listed: true, Unlisted: true, Snoozed: true });
 
-  useEffect(() => {
+  const fetchVehicles = () => {
     let active = true;
-    apiRequest('/vehicles')
+    setLoading(true);
+
+    // Build query params
+    const params = new URLSearchParams();
+    if (search.trim()) params.append('search', search.trim());
+
+    // Check if only a single status is selected
+    const activeStatuses = Object.keys(statusFilter).filter((k) => statusFilter[k]);
+    if (activeStatuses.length === 1) {
+      params.append('status', activeStatuses[0].toLowerCase());
+    }
+
+    const queryStr = params.toString() ? `?${params.toString()}` : '';
+
+    apiRequest(`/vehicles${queryStr}`)
       .then((res) => {
         if (!active) return;
         const vehicles = res?.data || [];
@@ -482,9 +498,9 @@ export function HostVehicles() {
           const mapped = vehicles.map((v, i) => ({
             id: v._id || v.id || i + 1,
             name: `${v.year || ''} ${v.make || ''} ${v.model || ''}`.trim() || 'Vehicle',
-            image: v.photos?.[0]?.url || '',
+            image: (v.photos?.find((p) => p.isPrimary)?.url) || v.photos?.[0]?.url || '',
             plate: v.licensePlate || 'POR1234',
-            state: v.licensePlateState || v.location?.state || 'NC',
+            state: v.licensePlateState || v.location?.state || 'NY',
             status: v.listingStatus === 'listed' ? 'Listed' : v.listingStatus === 'snoozed' ? 'Snoozed' : 'Unlisted',
             lastTrip: 'Active',
             rating: v.ratingsAverage || 5.0,
@@ -492,12 +508,13 @@ export function HostVehicles() {
             raw: v,
           }));
           setList(mapped);
-        } else if (Array.isArray(vehicles) && vehicles.length === 0) {
+        } else {
           setList([]);
         }
       })
       .catch((err) => {
         console.warn('Could not fetch host vehicles from server:', err.message);
+        setList([]);
       })
       .finally(() => {
         if (active) setLoading(false);
@@ -506,7 +523,14 @@ export function HostVehicles() {
     return () => {
       active = false;
     };
-  }, []);
+  };
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      fetchVehicles();
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [search, statusFilter]);
 
   const handleStatusChange = async (vehicleId, newStatus) => {
     let previousStatus = null;
@@ -533,6 +557,16 @@ export function HostVehicles() {
     }
   };
 
+  // Client-side filter fallback in case multiple statuses are chosen
+  const filteredList = list.filter((v) => {
+    if (statusFilter[v.status] === false) return false;
+    if (search.trim()) {
+      const q = search.toLowerCase();
+      return v.name.toLowerCase().includes(q) || v.plate.toLowerCase().includes(q);
+    }
+    return true;
+  });
+
   return (
     <Layout role="host">
       <div className="container vehicles">
@@ -542,9 +576,16 @@ export function HostVehicles() {
             <p>Manage your fleet, availability, and active status.</p>
           </div>
           <div className="toolbar__right">
-            <SearchField />
+            <SearchField
+              value={search}
+              onChange={setSearch}
+              placeholder="Search make, model, plate..."
+            />
             <TripStatusPopover />
-            <ListingStatusPopover />
+            <ListingStatusPopover
+              value={statusFilter}
+              onChange={setStatusFilter}
+            />
             <button type="button" className="btn btn-primary btn-list" onClick={() => navigate('/host/list/location')}>
               List your car
             </button>
@@ -555,17 +596,19 @@ export function HostVehicles() {
             <div className="spinner" style={{ margin: '0 auto 16px', width: 36, height: 36, border: '3px solid #eee', borderTopColor: '#0075ff', borderRadius: '50%', animation: 'spin 0.8s linear infinite' }} />
             <p>Loading your vehicles...</p>
           </div>
-        ) : list.length === 0 ? (
+        ) : filteredList.length === 0 ? (
           <div style={{ textAlign: 'center', padding: '60px 20px', background: '#fff', borderRadius: 16 }}>
             <h3 style={{ marginBottom: 8 }}>No vehicles found</h3>
-            <p style={{ color: '#888', marginBottom: 20 }}>You have not listed any vehicles yet.</p>
+            <p style={{ color: '#888', marginBottom: 20 }}>
+              {search ? 'No vehicles match your search criteria.' : 'You have not listed any vehicles yet.'}
+            </p>
             <button type="button" className="btn btn-primary" onClick={() => navigate('/host/list/location')}>
               List your first car
             </button>
           </div>
         ) : (
           <div className="veh-grid">
-          {list.map((v) => (
+          {filteredList.map((v) => (
             <article className="veh-card" key={v.id}>
               <div className="veh-card__img" onClick={() => navigate(`/host/vehicles/${v.id}/location`)}>
                 {v.image ? (
