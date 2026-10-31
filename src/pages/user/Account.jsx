@@ -1,12 +1,13 @@
 import { useState, useEffect } from 'react';
-import { FiPlus, FiEdit2, FiTrash2, FiCamera, FiCalendar, FiFileText, FiMoreVertical, FiMapPin } from 'react-icons/fi';
+import { FiPlus, FiEdit2, FiTrash2, FiCamera, FiCalendar, FiFileText, FiMoreVertical, FiMapPin, FiCreditCard, FiCheckCircle, FiCheck, FiSearch, FiDollarSign, FiShield } from 'react-icons/fi';
 import { MdLocationOn } from 'react-icons/md';
 import { IoClose } from 'react-icons/io5';
 import Layout from '../../components/Layout';
 import { DateRangeModal } from '../../components/Search';
-import { Modal, Select, Radio, Field, Input } from '../../ui';
+import { Modal, ModalHeader, Select, Radio, Field, Input, Checkbox } from '../../ui';
 import { img, LOREM } from '../../data';
 import { PaymentFields, AgreeBox, SuccessModal } from './Booking';
+import { InvoiceModal } from '../../components/InvoiceModal';
 import { navigate } from '../../router';
 import { apiRequest, getCurrentUser, setCurrentUser, downloadFile } from '../../lib/api';
 
@@ -433,43 +434,252 @@ function DriverLicenseSection({ user, onUpdate }) {
   );
 }
 
-const payments = [
-  ['Sep 9, 2025, 04:30pm', 'F', 'fadel@email.com', 'Mira Stanton', '+$5,670.00', 'Pending'],
-  ['Sep 8, 2025, 03:13pm', 'W', 'Wise - 5466xxxx', 'Carla Saris', '+$15,000.00', 'Completed'],
-  ['Sep 7, 2025, 1:00pm', 'P', 'Paypal - 3345xxxx', 'Aspen Geidt', '-$3,456.00', 'Cancelled'],
-  ['Sep 6, 2025, 07:00am', 'F', 'kikikarisma@email.com', 'Marcus Workman', '+$30,000.00', 'Pending'],
-  ['Sep 8, 2025, 03:13pm', 'W', 'Wise - 5466xxxx', 'Dulce Vaccaro', '+$8,000.00', 'Completed'],
-  ['Sep 8, 2025, 03:13pm', 'W', 'Wise - 5466xxxx', 'Davis Bator', '+$8,000.00', 'Completed'],
-  ['Sep 8, 2025, 03:13pm', 'W', 'Wise - 5466xxxx', 'Madelyn Aminoff', '+$8,000.00', 'Completed'],
+function AddPaymentMethodModal({ onClose, onAdded }) {
+  const [cardHolderName, setCardHolderName] = useState('');
+  const [cardNumber, setCardNumber] = useState('');
+  const [expiry, setExpiry] = useState('');
+  const [cvc, setCvc] = useState('');
+  const [country, setCountry] = useState('United States');
+  const [zip, setZip] = useState('');
+  const [isDefault, setIsDefault] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+
+  const formatCardNumber = (val) => {
+    const raw = val.replace(/\D/g, '').slice(0, 16);
+    return raw.replace(/(\d{4})(?=\d)/g, '$1 ');
+  };
+
+  const formatExpiry = (val) => {
+    const raw = val.replace(/\D/g, '').slice(0, 4);
+    if (raw.length >= 3) return `${raw.slice(0, 2)}/${raw.slice(2)}`;
+    return raw;
+  };
+
+  const detectBrand = (num) => {
+    const clean = num.replace(/\s/g, '');
+    if (clean.startsWith('4')) return 'Visa';
+    if (/^5[1-5]/.test(clean)) return 'Mastercard';
+    if (/^3[47]/.test(clean)) return 'Amex';
+    if (/^6(?:011|5)/.test(clean)) return 'Discover';
+    return 'Visa';
+  };
+
+  const handleSave = async (e) => {
+    e.preventDefault();
+    const cleanNum = cardNumber.replace(/\s/g, '');
+    if (cleanNum.length < 15) {
+      setError('Please enter a valid 15 or 16-digit card number.');
+      return;
+    }
+    const [mStr, yStr] = expiry.split('/');
+    const expM = parseInt(mStr, 10);
+    const expY = parseInt(yStr ? (yStr.length === 2 ? `20${yStr}` : yStr) : '', 10);
+    if (!expM || expM < 1 || expM > 12 || !expY || expY < new Date().getFullYear()) {
+      setError('Please enter a valid future expiration date (MM/YY).');
+      return;
+    }
+
+    setLoading(true);
+    setError('');
+    try {
+      const brand = detectBrand(cleanNum);
+      const last4 = cleanNum.slice(-4);
+      const payload = {
+        providerPaymentMethodId: `pm_card_${brand.toLowerCase()}`,
+        type: 'card',
+        brand,
+        last4,
+        expiryMonth: expM,
+        expiryYear: expY,
+        cardHolderName: cardHolderName.trim() || 'John Doe',
+        billingCountry: country,
+        billingZip: zip || '10001',
+        isDefault,
+      };
+
+      await apiRequest('/payments/methods', {
+        method: 'POST',
+        body: payload,
+      });
+
+      if (onAdded) onAdded();
+      onClose();
+    } catch (err) {
+      setError(err?.message || 'Failed to save payment card.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <Modal onClose={onClose} width={580} className="auth">
+      <ModalHeader title="Add Payment Card" sub="Enter your card details. Live payment gateway is in sandbox mode." onClose={onClose} />
+      {error && (
+        <div style={{ color: '#ef4444', backgroundColor: '#fee2e2', padding: '10px 14px', borderRadius: '8px', margin: '12px 0', fontSize: '13px' }}>
+          {error}
+        </div>
+      )}
+      <form onSubmit={handleSave}>
+        <Field label="Cardholder Name">
+          <Input
+            placeholder="Name on card"
+            value={cardHolderName}
+            onChange={(e) => setCardHolderName(e.target.value)}
+            required
+          />
+        </Field>
+        <Field label="Card Number">
+          <div className="input-icon">
+            <Input
+              placeholder="4242 4242 4242 4242"
+              value={cardNumber}
+              onChange={(e) => setCardNumber(formatCardNumber(e.target.value))}
+              required
+            />
+            <span style={{ position: 'absolute', right: 12, top: 12, fontSize: '12px', fontWeight: 700, color: '#0a5cff' }}>
+              {detectBrand(cardNumber)}
+            </span>
+          </div>
+        </Field>
+        <div className="grid-2">
+          <Field label="Expiration Date">
+            <Input
+              placeholder="MM/YY"
+              value={expiry}
+              onChange={(e) => setExpiry(formatExpiry(e.target.value))}
+              required
+            />
+          </Field>
+          <Field label="Security Code">
+            <div className="input-icon">
+              <Input
+                placeholder="CVC"
+                maxLength={4}
+                value={cvc}
+                onChange={(e) => setCvc(e.target.value.replace(/\D/g, ''))}
+                required
+              />
+              <FiCreditCard className="input-icon__ico" size={20} />
+            </div>
+          </Field>
+        </div>
+        <div className="grid-2">
+          <Field label="Country">
+            <Select
+              value={country}
+              onChange={(val) => setCountry(val)}
+              options={['United States', 'Canada', 'United Kingdom', 'Australia']}
+            />
+          </Field>
+          <Field label="Billing Postal / Zip">
+            <Input
+              placeholder="10001"
+              value={zip}
+              onChange={(e) => setZip(e.target.value)}
+            />
+          </Field>
+        </div>
+        <div style={{ margin: '14px 0 20px' }}>
+          <Checkbox checked={isDefault} onChange={setIsDefault} className="check--dark">
+            Set as default payment method
+          </Checkbox>
+        </div>
+        <div style={{ display: 'flex', gap: 12, justifyContent: 'flex-end' }}>
+          <button type="button" className="btn btn-outline" disabled={loading} onClick={onClose}>
+            Cancel
+          </button>
+          <button type="submit" className="btn btn-primary" disabled={loading}>
+            {loading ? 'Saving Card...' : 'Save Payment Card'}
+          </button>
+        </div>
+      </form>
+    </Modal>
+  );
+}
+
+const paymentsFallback = [
+  ['Sep 9, 2026, 04:30pm', 'F', 'fadel@email.com', 'Mira Stanton', '+$5,670.00', 'Pending'],
+  ['Sep 8, 2026, 03:13pm', 'W', 'Wise - 5466xxxx', 'Carla Saris', '+$15,000.00', 'Completed'],
+  ['Sep 7, 2026, 1:00pm', 'P', 'Paypal - 3345xxxx', 'Aspen Geidt', '-$3,456.00', 'Cancelled'],
+  ['Sep 6, 2026, 07:00am', 'F', 'kikikarisma@email.com', 'Marcus Workman', '+$30,000.00', 'Pending'],
 ];
 
-/* Figma: "MacBook Pro 14 - 20" — Payment History */
+/* Figma: "MacBook Pro 14 - 20" — Payment History, Invoices, and Saved Methods */
 export function PaymentHistory() {
+  const [activeTab, setActiveTab] = useState('transactions'); // 'transactions' | 'cards'
   const [cal, setCal] = useState(false);
   const [list, setList] = useState([]);
   const [loading, setLoading] = useState(true);
 
+  const [search, setSearch] = useState('');
+  const [statusFilter, setStatusFilter] = useState('');
+  const [typeFilter, setTypeFilter] = useState('');
+
+  const [savedMethods, setSavedMethods] = useState([]);
+  const [creditBalance, setCreditBalance] = useState(0);
+  const [loadingMethods, setLoadingMethods] = useState(false);
+  const [showAddCard, setShowAddCard] = useState(false);
+  const [actionMsg, setActionMsg] = useState('');
+
+  const [redeemCode, setRedeemCode] = useState('');
+  const [redeeming, setRedeeming] = useState(false);
+
+  const [selectedInvoicePaymentId, setSelectedInvoicePaymentId] = useState(null);
+
+  const fetchPayments = async () => {
+    setLoading(true);
+    try {
+      const params = new URLSearchParams();
+      if (statusFilter) params.append('status', statusFilter);
+      if (typeFilter) params.append('type', typeFilter);
+      if (search.trim()) params.append('search', search.trim());
+
+      const queryStr = params.toString() ? `?${params.toString()}` : '';
+      const res = await apiRequest(`/payments${queryStr}`);
+      const items = res?.data || [];
+      setList(Array.isArray(items) ? items : []);
+    } catch (err) {
+      console.warn('Could not load payments from server:', err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const fetchWallet = async () => {
+    setLoadingMethods(true);
+    try {
+      const [methodsRes, creditRes] = await Promise.all([
+        apiRequest('/payments/methods').catch(() => null),
+        apiRequest('/payments/credit').catch(() => null),
+      ]);
+      if (methodsRes?.data) {
+        setSavedMethods(Array.isArray(methodsRes.data) ? methodsRes.data : []);
+      }
+      if (creditRes?.data?.travelCreditBalance != null) {
+        setCreditBalance(creditRes.data.travelCreditBalance);
+      }
+    } catch (err) {
+      console.warn('Wallet fetch error:', err.message);
+    } finally {
+      setLoadingMethods(false);
+    }
+  };
+
   useEffect(() => {
-    let active = true;
-    apiRequest('/payments')
-      .then((res) => {
-        if (!active) return;
-        const items = res?.data || [];
-        setList(Array.isArray(items) ? items : []);
-      })
-      .catch((err) => {
-        console.warn('Could not load payments from server:', err.message);
-      })
-      .finally(() => {
-        if (active) setLoading(false);
-      });
-    return () => {
-      active = false;
-    };
+    fetchPayments();
+  }, [statusFilter, typeFilter]);
+
+  useEffect(() => {
+    fetchWallet();
   }, []);
 
-  const [exporting, setExporting] = useState(false);
+  const handleSearchSubmit = (e) => {
+    e.preventDefault();
+    fetchPayments();
+  };
 
+  const [exporting, setExporting] = useState(false);
   const handleExportCsv = async () => {
     if (exporting) return;
     setExporting(true);
@@ -483,15 +693,53 @@ export function PaymentHistory() {
     }
   };
 
-  const handleDownloadInvoice = (paymentId) => {
-    if (!paymentId) return;
-    const token = localStorage.getItem('turn_and_burn_access_token');
-    window.open(`https://turn-and-burn-backend.onrender.com/api/v1/payments/${paymentId}/invoice?token=${token}`, '_blank');
+  const handleSetDefaultMethod = async (id) => {
+    try {
+      await apiRequest(`/payments/methods/${id}/default`, { method: 'PATCH' });
+      setActionMsg('Default payment method updated.');
+      fetchWallet();
+      setTimeout(() => setActionMsg(''), 3500);
+    } catch (err) {
+      alert(err?.message || 'Failed to set default method.');
+    }
   };
 
-  const displayPayments = list.length > 0 ? list : payments.map((p, i) => ({
-    _id: `mock-${i}`,
-    referenceCode: '456789356',
+  const handleRemoveMethod = async (id) => {
+    if (!window.confirm('Are you sure you want to remove this saved payment method?')) return;
+    try {
+      await apiRequest(`/payments/methods/${id}`, { method: 'DELETE' });
+      setActionMsg('Payment method removed.');
+      fetchWallet();
+      setTimeout(() => setActionMsg(''), 3500);
+    } catch (err) {
+      alert(err?.message || 'Failed to remove payment method.');
+    }
+  };
+
+  const handleQuickRedeem = async (e) => {
+    e.preventDefault();
+    if (!redeemCode.trim()) return;
+    setRedeeming(true);
+    try {
+      const res = await apiRequest('/payments/gift-cards/redeem', {
+        method: 'POST',
+        body: { code: redeemCode.trim() },
+      });
+      setActionMsg(`Success! $${(res?.data?.credited || 0).toFixed(2)} added to your travel credit.`);
+      setRedeemCode('');
+      fetchWallet();
+      setTimeout(() => setActionMsg(''), 5000);
+    } catch (err) {
+      alert(err?.message || 'Invalid or already redeemed gift card code.');
+    } finally {
+      setRedeeming(false);
+    }
+  };
+
+  const displayPayments = list.length > 0 ? list : paymentsFallback.map((p, i) => ({
+    _id: `fallback-${i}`,
+    referenceCode: `TRX-${4567890 + i}`,
+    type: 'booking_charge',
     createdAt: p[0],
     payer: { firstName: p[2] },
     payee: { firstName: p[3] },
@@ -504,66 +752,438 @@ export function PaymentHistory() {
     <Layout role="user">
       <div className="container">
         <PageTitle
-          title="Payment History"
+          title="Payments &amp; Invoicing"
           right={
             <div className="ph-actions">
-              <button type="button" className="chip-btn chip-btn--wide" onClick={() => setCal(true)}>
-                Sep 9, 2024 - Sep 15, 2024 <FiCalendar />
-              </button>
-              <div>
-                <button type="button" className="chip-btn" onClick={handleExportCsv} disabled={exporting}>
-                  {exporting ? 'Exporting...' : 'Export CSV'} <FiFileText />
+              <div style={{ display: 'flex', gap: '8px' }}>
+                <button
+                  type="button"
+                  className={`chip-btn ${activeTab === 'transactions' ? 'chip-btn--active' : ''}`}
+                  onClick={() => setActiveTab('transactions')}
+                  style={{
+                    backgroundColor: activeTab === 'transactions' ? '#0a5cff' : '#fff',
+                    color: activeTab === 'transactions' ? '#fff' : '#0f172a',
+                    fontWeight: 600,
+                  }}
+                >
+                  <FiFileText /> Transactions &amp; Invoices
+                </button>
+                <button
+                  type="button"
+                  className={`chip-btn ${activeTab === 'cards' ? 'chip-btn--active' : ''}`}
+                  onClick={() => setActiveTab('cards')}
+                  style={{
+                    backgroundColor: activeTab === 'cards' ? '#0a5cff' : '#fff',
+                    color: activeTab === 'cards' ? '#fff' : '#0f172a',
+                    fontWeight: 600,
+                  }}
+                >
+                  <FiCreditCard /> Saved Cards &amp; Wallet ({savedMethods.length})
                 </button>
               </div>
             </div>
           }
         >
-          View your completed and pending transactions, receipts, and invoices.
+          View your completed and pending transactions, download official tax invoices, and manage saved payment methods.
         </PageTitle>
-        {loading && <p style={{ color: '#888', padding: '10px 0' }}>Loading your transactions...</p>}
-        <div className="table-wrap">
-          <table className="table">
-            <thead>
-              <tr>
-                <th>Transaction ID</th>
-                <th>Transaction Date</th>
-                <th>From</th>
-                <th>Recipient</th>
-                <th>Amount</th>
-                <th>Status</th>
-                <th>Invoice</th>
-              </tr>
-            </thead>
-            <tbody>
-              {displayPayments.map((p) => {
-                const dateStr = p.createdAt ? new Date(p.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : 'N/A';
-                const fromName = p.payer ? `${p.payer.firstName || ''} ${p.payer.lastName || ''}`.trim() || 'You' : 'You';
-                const toName = p.payee ? `${p.payee.firstName || ''} ${p.payee.lastName || ''}`.trim() || 'Turn & Burn' : 'Turn & Burn';
-                const statusStr = p.status || 'succeeded';
-                const isSuccess = statusStr === 'succeeded';
-                return (
-                  <tr key={p._id}>
-                    <td>{p.referenceCode || p._id?.slice(-8)}</td>
-                    <td>{dateStr}</td>
-                    <td>{fromName}</td>
-                    <td>{toName}</td>
-                    <td className="b">${Number(p.amount || 0).toFixed(2)}</td>
-                    <td>
-                      <span className={`status status--${isSuccess ? 'completed' : statusStr}`}>{statusStr}</span>
-                    </td>
-                    <td>
-                      <button type="button" className="chip-btn" style={{ padding: '4px 8px', fontSize: '12px' }} onClick={() => handleDownloadInvoice(p._id)}>
-                        PDF <FiFileText />
-                      </button>
-                    </td>
+
+        {actionMsg && (
+          <div
+            style={{
+              padding: '12px 18px',
+              backgroundColor: '#ecfdf5',
+              border: '1px solid #a7f3d0',
+              borderRadius: '8px',
+              color: '#065f46',
+              fontSize: '14px',
+              display: 'flex',
+              alignItems: 'center',
+              gap: 8,
+              margin: '16px 0',
+            }}
+          >
+            <FiCheckCircle size={18} /> {actionMsg}
+          </div>
+        )}
+
+        {activeTab === 'transactions' && (
+          <>
+            <div
+              style={{
+                display: 'flex',
+                flexWrap: 'wrap',
+                gap: 12,
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                margin: '20px 0 16px',
+                padding: '16px',
+                background: '#f8fafc',
+                borderRadius: '12px',
+                border: '1px solid #e2e8f0',
+              }}
+            >
+              <form onSubmit={handleSearchSubmit} style={{ display: 'flex', gap: 8, flex: '1 1 240px', maxWidth: '380px' }}>
+                <div className="input-icon" style={{ width: '100%' }}>
+                  <Input
+                    placeholder="Search by Transaction ID or Ref..."
+                    value={search}
+                    onChange={(e) => setSearch(e.target.value)}
+                  />
+                  <FiSearch className="input-icon__ico" size={18} />
+                </div>
+                <button type="submit" className="btn btn-primary" style={{ padding: '0 16px', height: '42px' }}>
+                  Search
+                </button>
+              </form>
+
+              <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
+                <select
+                  className="input"
+                  value={statusFilter}
+                  onChange={(e) => setStatusFilter(e.target.value)}
+                  style={{ width: '150px', height: '42px', fontSize: '13px' }}
+                >
+                  <option value="">All Statuses</option>
+                  <option value="succeeded">Succeeded</option>
+                  <option value="pending">Pending</option>
+                  <option value="refunded">Refunded</option>
+                  <option value="failed">Failed</option>
+                </select>
+
+                <select
+                  className="input"
+                  value={typeFilter}
+                  onChange={(e) => setTypeFilter(e.target.value)}
+                  style={{ width: '170px', height: '42px', fontSize: '13px' }}
+                >
+                  <option value="">All Types</option>
+                  <option value="booking_charge">Booking Charge</option>
+                  <option value="gift_card_purchase">Gift Card Purchase</option>
+                  <option value="payout">Host Payout</option>
+                  <option value="refund">Refund</option>
+                </select>
+
+                <button
+                  type="button"
+                  className="chip-btn"
+                  onClick={handleExportCsv}
+                  disabled={exporting}
+                  style={{ height: '42px', padding: '0 16px' }}
+                >
+                  {exporting ? 'Exporting...' : 'Export CSV'} <FiFileText />
+                </button>
+              </div>
+            </div>
+
+            {loading && <p style={{ color: '#888', padding: '10px 0' }}>Loading your transactions...</p>}
+
+            <div className="table-wrap">
+              <table className="table">
+                <thead>
+                  <tr>
+                    <th>Transaction Ref</th>
+                    <th>Type</th>
+                    <th>Date</th>
+                    <th>Payer</th>
+                    <th>Recipient</th>
+                    <th>Amount</th>
+                    <th>Status</th>
+                    <th>Invoice &amp; Receipt</th>
                   </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
+                </thead>
+                <tbody>
+                  {displayPayments.map((p) => {
+                    const dateStr = p.createdAt
+                      ? new Date(p.createdAt).toLocaleDateString('en-US', {
+                          month: 'short',
+                          day: 'numeric',
+                          year: 'numeric',
+                        })
+                      : 'N/A';
+                    const fromName = p.payer
+                      ? `${p.payer.firstName || ''} ${p.payer.lastName || ''}`.trim() || 'You'
+                      : 'You';
+                    const toName = p.payee
+                      ? `${p.payee.firstName || ''} ${p.payee.lastName || ''}`.trim() || 'Turn & Burn'
+                      : 'Turn & Burn';
+                    const statusStr = p.status || 'succeeded';
+                    const isSuccess = statusStr === 'succeeded';
+
+                    return (
+                      <tr key={p._id}>
+                        <td>
+                          <strong style={{ color: '#0f172a' }}>{p.referenceCode || p._id?.slice(-8)}</strong>
+                          {p.booking?.referenceCode && (
+                            <div style={{ fontSize: '11px', color: '#64748b' }}>
+                              Booking: {p.booking.referenceCode}
+                            </div>
+                          )}
+                        </td>
+                        <td>
+                          <span
+                            style={{
+                              fontSize: '12px',
+                              padding: '2px 8px',
+                              borderRadius: '12px',
+                              background: '#f1f5f9',
+                              color: '#334155',
+                              textTransform: 'capitalize',
+                            }}
+                          >
+                            {(p.type || 'booking_charge').replace('_', ' ')}
+                          </span>
+                        </td>
+                        <td>{dateStr}</td>
+                        <td>{fromName}</td>
+                        <td>{toName}</td>
+                        <td className="b">${Number(p.amount || 0).toFixed(2)}</td>
+                        <td>
+                          <span className={`status status--${isSuccess ? 'completed' : statusStr}`}>
+                            {statusStr}
+                          </span>
+                        </td>
+                        <td>
+                          <button
+                            type="button"
+                            className="chip-btn"
+                            style={{
+                              padding: '6px 12px',
+                              fontSize: '12px',
+                              background: '#0a5cff',
+                              color: '#fff',
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: 6,
+                            }}
+                            onClick={() => setSelectedInvoicePaymentId(p._id)}
+                          >
+                            <FiFileText size={14} /> View Invoice
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </>
+        )}
+
+        {activeTab === 'cards' && (
+          <div style={{ marginTop: '24px' }}>
+            <div
+              style={{
+                display: 'grid',
+                gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))',
+                gap: 20,
+                marginBottom: 32,
+              }}
+            >
+              <div
+                style={{
+                  background: 'linear-gradient(135deg, #0a5cff 0%, #0036a7 100%)',
+                  borderRadius: '16px',
+                  padding: '28px',
+                  color: '#ffffff',
+                  boxShadow: '0 10px 25px -5px rgba(10, 92, 255, 0.3)',
+                }}
+              >
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <span style={{ fontSize: '13px', textTransform: 'uppercase', letterSpacing: '1px', opacity: 0.9 }}>
+                    Turn &amp; Burn Travel Credit
+                  </span>
+                  <FiDollarSign size={24} style={{ opacity: 0.8 }} />
+                </div>
+                <div style={{ fontSize: '36px', fontWeight: 800, margin: '14px 0 8px' }}>
+                  ${Number(creditBalance || 0).toFixed(2)}
+                </div>
+                <p style={{ fontSize: '13px', opacity: 0.85, margin: 0 }}>
+                  Automatically applied at checkout to discount any vehicle rental.
+                </p>
+                <div style={{ marginTop: 20, display: 'flex', gap: 10 }}>
+                  <button
+                    type="button"
+                    className="btn"
+                    style={{ background: '#fff', color: '#0a5cff', fontSize: '13px', padding: '8px 16px', fontWeight: 600 }}
+                    onClick={() => navigate('/app/gift-cards')}
+                  >
+                    Buy Gift Card
+                  </button>
+                </div>
+              </div>
+
+              <div
+                style={{
+                  background: '#ffffff',
+                  borderRadius: '16px',
+                  padding: '28px',
+                  border: '1px solid #e2e8f0',
+                  boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.05)',
+                }}
+              >
+                <h3 style={{ margin: 0, fontSize: '18px', fontWeight: 600, color: '#0f172a' }}>
+                  Redeem Gift Card to Wallet
+                </h3>
+                <p style={{ margin: '6px 0 16px', fontSize: '13px', color: '#64748b' }}>
+                  Have a voucher or gift code? Enter it below to add credits directly to your account.
+                </p>
+                <form onSubmit={handleQuickRedeem} style={{ display: 'flex', gap: 10 }}>
+                  <Input
+                    placeholder="Enter code (e.g. GIFT-ABCD-1234)"
+                    value={redeemCode}
+                    onChange={(e) => setRedeemCode(e.target.value.toUpperCase())}
+                    style={{ flex: 1 }}
+                  />
+                  <button
+                    type="submit"
+                    className="btn btn-primary"
+                    disabled={redeeming || !redeemCode.trim()}
+                    style={{ padding: '0 20px', whiteSpace: 'nowrap' }}
+                  >
+                    {redeeming ? 'Applying...' : 'Redeem'}
+                  </button>
+                </form>
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+              <div>
+                <h2 style={{ fontSize: '20px', fontWeight: 700, color: '#0f172a', margin: 0 }}>
+                  Saved Cards &amp; Payment Methods
+                </h2>
+                <small style={{ color: '#64748b' }}>
+                  Manage payment cards used for fast 1-click checkout and reservations.
+                </small>
+              </div>
+              <button
+                type="button"
+                className="btn btn-primary"
+                onClick={() => setShowAddCard(true)}
+                style={{ display: 'flex', alignItems: 'center', gap: 8 }}
+              >
+                <FiPlus size={18} /> Add New Card
+              </button>
+            </div>
+
+            {loadingMethods ? (
+              <p style={{ color: '#888' }}>Loading saved payment methods...</p>
+            ) : savedMethods.length === 0 ? (
+              <div
+                style={{
+                  padding: '40px 20px',
+                  textAlign: 'center',
+                  background: '#f8fafc',
+                  borderRadius: '12px',
+                  border: '1px solid #e2e8f0',
+                }}
+              >
+                <FiCreditCard size={36} color="#94a3b8" style={{ marginBottom: 10 }} />
+                <h4 style={{ margin: 0, color: '#334155' }}>No saved cards found</h4>
+                <p style={{ color: '#64748b', fontSize: '14px', margin: '4px 0 16px' }}>
+                  Add a payment card to enjoy seamless 1-click checkout.
+                </p>
+                <button type="button" className="btn btn-primary" onClick={() => setShowAddCard(true)}>
+                  Add Card Now
+                </button>
+              </div>
+            ) : (
+              <div
+                style={{
+                  display: 'grid',
+                  gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))',
+                  gap: 16,
+                }}
+              >
+                {savedMethods.map((m) => (
+                  <div
+                    key={m._id}
+                    style={{
+                      background: '#ffffff',
+                      borderRadius: '14px',
+                      border: m.isDefault ? '2px solid #0a5cff' : '1px solid #e2e8f0',
+                      padding: '20px',
+                      position: 'relative',
+                      boxShadow: '0 2px 4px rgba(0,0,0,0.04)',
+                    }}
+                  >
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                        <FiCreditCard size={24} color={m.isDefault ? '#0a5cff' : '#64748b'} />
+                        <strong style={{ fontSize: '16px', color: '#0f172a' }}>
+                          {m.brand || 'Card'}
+                        </strong>
+                      </div>
+                      {m.isDefault && (
+                        <span
+                          style={{
+                            fontSize: '11px',
+                            fontWeight: 700,
+                            padding: '3px 8px',
+                            borderRadius: '12px',
+                            background: '#dbeafe',
+                            color: '#1d4ed8',
+                            letterSpacing: '0.5px',
+                          }}
+                        >
+                          DEFAULT
+                        </span>
+                      )}
+                    </div>
+
+                    <div style={{ fontSize: '18px', fontWeight: 600, color: '#1e293b', letterSpacing: '2px', marginBottom: 10 }}>
+                      •••• •••• •••• {m.last4 || '4242'}
+                    </div>
+
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', color: '#64748b', marginBottom: 16 }}>
+                      <span>Expires: {m.expiryMonth}/{m.expiryYear}</span>
+                      <span>{m.cardHolderName || 'John Doe'}</span>
+                    </div>
+
+                    <div style={{ display: 'flex', gap: 10, borderTop: '1px solid #f1f5f9', paddingTop: 12 }}>
+                      {!m.isDefault && (
+                        <button
+                          type="button"
+                          className="btn-text"
+                          style={{ fontSize: '12px', color: '#0a5cff', padding: 0 }}
+                          onClick={() => handleSetDefaultMethod(m._id)}
+                        >
+                          Set Default
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        className="btn-text"
+                        style={{ fontSize: '12px', color: '#ef4444', padding: 0, marginLeft: 'auto' }}
+                        onClick={() => handleRemoveMethod(m._id)}
+                      >
+                        Remove
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
       </div>
+
       {cal && <DateRangeModal compact onClose={() => setCal(false)} />}
+      {showAddCard && (
+        <AddPaymentMethodModal
+          onClose={() => setShowAddCard(false)}
+          onAdded={() => {
+            fetchWallet();
+            setActionMsg('New payment method successfully added.');
+            setTimeout(() => setActionMsg(''), 3500);
+          }}
+        />
+      )}
+      {selectedInvoicePaymentId && (
+        <InvoiceModal
+          paymentId={selectedInvoicePaymentId}
+          onClose={() => setSelectedInvoicePaymentId(null)}
+        />
+      )}
     </Layout>
   );
 }
