@@ -32,6 +32,8 @@ export default function Home({ role = 'guest' }) {
   const [body, setBody] = useState(-1);
   const [tab, setTab] = useState(collectionTabs[0]);
   const [apiVehicles, setApiVehicles] = useState([]);
+  const [brands, setBrands] = useState([]);
+  const [selectedBrand, setSelectedBrand] = useState(null);
   const [loading, setLoading] = useState(true);
   const isUser = role === 'user';
   const rent = (c) => {
@@ -70,13 +72,18 @@ export default function Home({ role = 'guest' }) {
     setLoading(true);
     Promise.all([
       apiRequest('/vehicles/search'),
+      apiRequest('/vehicles/brands').catch(() => ({ data: [] })),
       localStorage.getItem('turn_and_burn_access_token')
         ? apiRequest('/vehicles/favorites/mine').catch(() => ({ data: [] }))
         : Promise.resolve({ data: [] }),
     ])
-      .then(([searchRes, favRes]) => {
+      .then(([searchRes, brandsRes, favRes]) => {
         if (!active) return;
         const list = searchRes?.data?.results || searchRes?.data || [];
+        const brandList = Array.isArray(brandsRes?.data) ? brandsRes.data : [];
+        if (brandList.length > 0) {
+          setBrands(brandList);
+        }
         const favList = Array.isArray(favRes?.data) ? favRes.data : [];
         const favIdSet = new Set(
           favList.map((f) => String(f?.vehicle?._id || f?.vehicle?.id || f?._id || f?.id))
@@ -184,6 +191,55 @@ export default function Home({ role = 'guest' }) {
             <h2>Our Impressive Collection of Cars</h2>
             <p>Ranging from elegant sedans to powerful sports cars, all carefully selected to provide our customers with the ultimate driving experience.</p>
           </div>
+          {brands.length > 0 && (
+            <div style={{ display: 'flex', gap: '8px', overflowX: 'auto', paddingBottom: '12px', marginBottom: '16px', scrollbarWidth: 'none' }}>
+              <button
+                type="button"
+                onClick={() => setSelectedBrand(null)}
+                style={{
+                  padding: '6px 16px',
+                  borderRadius: '999px',
+                  fontSize: '13px',
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                  border: '1px solid #cbd5e1',
+                  background: selectedBrand === null ? '#0f172a' : '#fff',
+                  color: selectedBrand === null ? '#fff' : '#475569',
+                  whiteSpace: 'nowrap',
+                }}
+              >
+                All Makes ({formattedVehicles.length})
+              </button>
+              {brands.map((b) => {
+                const brandName = b.value || b.brand || b.make || b._id || 'Car';
+                const count = b.count ?? 0;
+                const active = selectedBrand === brandName;
+                return (
+                  <button
+                    key={brandName}
+                    type="button"
+                    onClick={() => {
+                      setSelectedBrand(brandName);
+                      navigate(`/app/cars?make=${encodeURIComponent(brandName)}`);
+                    }}
+                    style={{
+                      padding: '6px 16px',
+                      borderRadius: '999px',
+                      fontSize: '13px',
+                      fontWeight: 600,
+                      cursor: 'pointer',
+                      border: '1px solid #cbd5e1',
+                      background: active ? '#0f172a' : '#fff',
+                      color: active ? '#fff' : '#475569',
+                      whiteSpace: 'nowrap',
+                    }}
+                  >
+                    {brandName} ({count})
+                  </button>
+                );
+              })}
+            </div>
+          )}
           <div className="pill-tabs">
             {collectionTabs.map((t) => (
               <button key={t} type="button" className={tab === t ? 'is-active' : ''} onClick={() => setTab(t)}>

@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { FiChevronLeft, FiTrash2, FiCamera, FiInfo, FiCheck, FiAlertTriangle, FiUpload } from 'react-icons/fi';
+import { FiChevronLeft, FiChevronRight, FiTrash2, FiCamera, FiInfo, FiCheck, FiAlertTriangle, FiUpload, FiCalendar, FiLock, FiUnlock } from 'react-icons/fi';
 import { FaStar } from 'react-icons/fa';
 import { IoCarOutline, IoClose } from 'react-icons/io5';
 import { MdOutlineLocationOn } from 'react-icons/md';
@@ -113,6 +113,8 @@ function DiscountCard({ title, rows, note, action = 'Edit' }) {
 export default function VehicleEdit() {
   const { params } = useRoute();
   const section = params.section || 'location';
+  // Support compound IDs or normal IDs
+  const effectiveId = params.id1 && params.id2 ? `${params.id1}/${params.id2}` : (params.id || params.id1);
 
   const [vehicleData, setVehicleData] = useState(null);
   const [userData, setUserData] = useState(null);
@@ -147,6 +149,12 @@ export default function VehicleEdit() {
   const [deliveryRadius, setDeliveryRadius] = useState(25);
   const [homeAddress, setHomeAddress] = useState('');
 
+  // Calendar dates block/unblock state
+  const [blockedDays, setBlockedDays] = useState([]);
+  const [selectedCalendarMonth, setSelectedCalendarMonth] = useState(() => new Date());
+  const [updatingAvailability, setUpdatingAvailability] = useState(false);
+  const [availabilityMessage, setAvailabilityMessage] = useState('');
+
   // Host profile name & contact phone state
   const [firstName, setFirstName] = useState('');
   const [middleName, setMiddleName] = useState('');
@@ -176,22 +184,22 @@ export default function VehicleEdit() {
   const [deleting, setDeleting] = useState(false);
 
   const reloadVehicle = async () => {
-    if (!params.id) return;
+    if (!effectiveId) return;
     try {
       // 1. Fetch vehicle using authenticated host endpoint /mine/:id first
       let v = null;
       try {
-        const mineRes = await apiRequest(`/vehicles/mine/${params.id}`);
+        const mineRes = await apiRequest(`/vehicles/mine/${effectiveId}`);
         v = mineRes?.data;
       } catch {
         // Fallback to fleet listing
         try {
           const fleetRes = await apiRequest('/vehicles');
           const list = fleetRes?.data || [];
-          v = list.find((x) => (x._id || x.id) === params.id);
+          v = list.find((x) => (x._id || x.id) === effectiveId);
         } catch {
           // Last resort public endpoint
-          const pubRes = await apiRequest(`/vehicles/${params.id}`);
+          const pubRes = await apiRequest(`/vehicles/${effectiveId}`);
           v = pubRes?.data;
         }
       }
@@ -339,9 +347,53 @@ export default function VehicleEdit() {
 
   useEffect(() => {
     reloadVehicle();
-  }, [params.id]);
+  }, [effectiveId]);
 
-  const vehicleId = vehicleData?._id || vehicleData?.id || params.id;
+  const loadAvailability = async () => {
+    if (!effectiveId) return;
+    try {
+      const year = selectedCalendarMonth.getFullYear();
+      const month = selectedCalendarMonth.getMonth();
+      const firstDay = new Date(Date.UTC(year, month, 1));
+      const lastDay = new Date(Date.UTC(year, month + 1, 0, 23, 59, 59));
+      const res = await apiRequest(`/vehicles/${effectiveId}/availability?from=${firstDay.toISOString()}&to=${lastDay.toISOString()}`);
+      if (Array.isArray(res?.data)) {
+        setBlockedDays(res.data);
+      }
+    } catch (err) {
+      console.warn('Could not load availability:', err.message);
+    }
+  };
+
+  useEffect(() => {
+    if (section === 'availability') {
+      loadAvailability();
+    }
+  }, [effectiveId, section, selectedCalendarMonth]);
+
+  const toggleDayBlocked = async (dateStr, currentlyBlocked) => {
+    if (updatingAvailability) return;
+    setUpdatingAvailability(true);
+    setAvailabilityMessage('');
+    try {
+      const dateObj = new Date(dateStr);
+      await apiRequest(`/vehicles/${effectiveId}/availability`, {
+        method: 'POST',
+        body: {
+          dates: [dateObj.toISOString()],
+          isBlocked: !currentlyBlocked,
+        },
+      });
+      setAvailabilityMessage(`Date ${dateStr.slice(0, 10)} successfully ${!currentlyBlocked ? 'blocked' : 'unblocked'}.`);
+      await loadAvailability();
+    } catch (err) {
+      setAvailabilityMessage(`Failed to update date: ${err.message}`);
+    } finally {
+      setUpdatingAvailability(false);
+    }
+  };
+
+  const vehicleId = vehicleData?._id || vehicleData?.id || effectiveId;
   const vehicleName = vehicleData
     ? `${vehicleData.year || ''} ${vehicleData.make || ''} ${vehicleData.model || ''}`.trim()
     : 'Vehicle Details';
@@ -707,7 +759,20 @@ export default function VehicleEdit() {
         </div>
       );
       break;
-    case 'availability':
+    case 'availability': {
+      const calYear = selectedCalendarMonth.getFullYear();
+      const calMonth = selectedCalendarMonth.getMonth();
+      const daysInMonth = new Date(calYear, calMonth + 1, 0).getDate();
+      const firstDayOfWeek = new Date(calYear, calMonth, 1).getDay(); // 0 is Sunday
+
+      const blockedMap = {};
+      const bookedMap = {};
+      blockedDays.forEach((d) => {
+        const dateKey = new Date(d.date).toISOString().slice(0, 10);
+        if (d.isBlocked) blockedMap[dateKey] = true;
+        if (d.isBooked) bookedMap[dateKey] = true;
+      });
+
       body = (
         <div className="veh-form">
           <h2 className="step__title">Car availability</h2>
@@ -724,10 +789,113 @@ export default function VehicleEdit() {
               if (val.max) setMaxTripDuration(val.max);
             }}
           />
+
+          <div style={{ marginTop: '32px', paddingTop: '24px', borderTop: '1px solid #e2e8f0' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+              <div>
+                <h3 style={{ fontSize: '18px', fontWeight: 600, color: '#0f172a', margin: 0 }}>Block or Open Dates</h3>
+                <p style={{ fontSize: '13px', color: '#64748b', marginTop: '4px', marginBottom: 0 }}>
+                  Click on any day below to block it from guest reservations or reopen it.
+                </p>
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <button
+                  type="button"
+                  className="icon-btn"
+                  onClick={() => setSelectedCalendarMonth(new Date(calYear, calMonth - 1, 1))}
+                  style={{ border: '1px solid #cbd5e1', borderRadius: '8px', padding: '6px 10px', background: '#fff', cursor: 'pointer' }}
+                >
+                  <FiChevronLeft size={18} />
+                </button>
+                <span style={{ fontWeight: 600, fontSize: '14px', minWidth: '120px', textAlign: 'center' }}>
+                  {selectedCalendarMonth.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}
+                </span>
+                <button
+                  type="button"
+                  className="icon-btn"
+                  onClick={() => setSelectedCalendarMonth(new Date(calYear, calMonth + 1, 1))}
+                  style={{ border: '1px solid #cbd5e1', borderRadius: '8px', padding: '6px 10px', background: '#fff', cursor: 'pointer' }}
+                >
+                  <FiChevronRight size={18} />
+                </button>
+              </div>
+            </div>
+
+            {availabilityMessage && (
+              <div style={{ padding: '8px 12px', background: availabilityMessage.includes('Failed') ? '#fee2e2' : '#f0fdf4', color: availabilityMessage.includes('Failed') ? '#b91c1c' : '#15803d', borderRadius: '8px', fontSize: '13px', marginBottom: '16px' }}>
+                {availabilityMessage}
+              </div>
+            )}
+
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: '6px', textAlign: 'center' }}>
+              {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((d) => (
+                <div key={d} style={{ fontSize: '12px', fontWeight: 600, color: '#94a3b8', padding: '4px 0' }}>
+                  {d}
+                </div>
+              ))}
+              {Array.from({ length: firstDayOfWeek }).map((_, i) => (
+                <div key={`empty-${i}`} />
+              ))}
+              {Array.from({ length: daysInMonth }).map((_, i) => {
+                const dayNum = i + 1;
+                const dStr = `${calYear}-${String(calMonth + 1).padStart(2, '0')}-${String(dayNum).padStart(2, '0')}`;
+                const isBlocked = !!blockedMap[dStr];
+                const isBooked = !!bookedMap[dStr];
+
+                let bg = '#f8fafc';
+                let border = '1px solid #e2e8f0';
+                let text = '#1e293b';
+                let label = 'Available';
+
+                if (isBooked) {
+                  bg = '#dbeafe';
+                  border = '1px solid #93c5fd';
+                  text = '#1d4ed8';
+                  label = 'Booked';
+                } else if (isBlocked) {
+                  bg = '#fee2e2';
+                  border = '1px solid #fca5a5';
+                  text = '#b91c1c';
+                  label = 'Blocked';
+                }
+
+                return (
+                  <button
+                    key={dayNum}
+                    type="button"
+                    disabled={updatingAvailability || isBooked}
+                    onClick={() => toggleDayBlocked(dStr, isBlocked)}
+                    title={isBooked ? 'Reserved by guest' : isBlocked ? 'Click to unblock' : 'Click to block'}
+                    style={{
+                      background: bg,
+                      border,
+                      color: text,
+                      borderRadius: '10px',
+                      padding: '10px 4px',
+                      cursor: isBooked ? 'not-allowed' : 'pointer',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      alignItems: 'center',
+                      gap: '4px',
+                      opacity: updatingAvailability ? 0.7 : 1,
+                      transition: 'all 0.15s ease',
+                    }}
+                  >
+                    <span style={{ fontSize: '14px', fontWeight: 600 }}>{dayNum}</span>
+                    <span style={{ fontSize: '10px', textTransform: 'uppercase', fontWeight: 700 }}>
+                      {label}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
           <SaveBtn onSave={handleSave} loading={saving} />
         </div>
       );
       break;
+    }
     case 'details':
       body = (
         <div className="veh-form">

@@ -48,6 +48,7 @@ export default function CarDetail({ role = 'guest' }) {
   const [similarLoading, setSimilarLoading] = useState(true);
   const [hostListingsCount, setHostListingsCount] = useState(null);
   const [hostReviewSummary, setHostReviewSummary] = useState(null);
+  const [availability, setAvailability] = useState([]);
   const isUser = role === 'user';
   const guard = (fn) => () => (isUser ? fn() : open('signup'));
 
@@ -62,6 +63,14 @@ export default function CarDetail({ role = 'guest' }) {
         const v = res?.data || null;
         setVehicle(v);
         if (v?.isFavorite) setFav(true);
+
+        apiRequest(`/vehicles/${carId}/availability`)
+          .then((availRes) => {
+            if (active && Array.isArray(availRes?.data)) {
+              setAvailability(availRes.data);
+            }
+          })
+          .catch(() => {});
 
         const hostId = v?.host?._id || (typeof v?.host === 'string' ? v?.host : null);
         if (hostId) {
@@ -534,6 +543,12 @@ export default function CarDetail({ role = 'guest' }) {
             <h3>Monthly Rental Rate</h3>
             <strong>${monthlyRate.toLocaleString()}/mo</strong>
             <p>Based on a 30-day extended rental with a {monthlyDiscount}% long-term discount applied</p>
+            {availability.length > 0 && (
+              <div style={{ marginTop: '12px', marginBottom: '16px', background: 'rgba(255,255,255,0.15)', borderRadius: '8px', padding: '10px', fontSize: '12px', textAlign: 'left' }}>
+                <span style={{ fontWeight: 600, display: 'block', marginBottom: '4px' }}>📅 Real-time Calendar</span>
+                <span>{availability.filter(a => a.isBooked).length} days booked · {availability.filter(a => a.isBlocked).length} days host reserved</span>
+              </div>
+            )}
             <button
               type="button"
               className="btn btn-white btn-block"
