@@ -13,26 +13,26 @@ import { apiRequest } from '../../lib/api';
 
 function MonthNav({ currentDate, onChange, onOpen }) {
   const label = currentDate.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
-  const prevWeek = () => {
+  const prevMonth = () => {
     const d = new Date(currentDate);
-    d.setDate(d.getDate() - 7);
+    d.setMonth(d.getMonth() - 1);
     onChange(d);
   };
-  const nextWeek = () => {
+  const nextMonth = () => {
     const d = new Date(currentDate);
-    d.setDate(d.getDate() + 7);
+    d.setMonth(d.getMonth() + 1);
     onChange(d);
   };
 
   return (
     <div className="month-nav">
-      <button type="button" aria-label="Previous week" onClick={prevWeek}>
+      <button type="button" aria-label="Previous month" onClick={prevMonth} title="Previous month">
         <FiChevronLeft size={24} strokeWidth={2.5} />
       </button>
-      <button type="button" className="month-nav__label" onClick={onOpen}>
+      <button type="button" className="month-nav__label" onClick={onOpen} title="Click to pick custom dates">
         {label}
       </button>
-      <button type="button" aria-label="Next week" onClick={nextWeek}>
+      <button type="button" aria-label="Next month" onClick={nextMonth} title="Next month">
         <FiChevronRight size={24} strokeWidth={2.5} />
       </button>
     </div>
@@ -44,8 +44,15 @@ export function HostCalendar() {
   const [cal, setCal] = useState(false);
   const [baseDate, setBaseDate] = useState(() => new Date());
   const [calendarData, setCalendarData] = useState(null);
+  const [dashboardStats, setDashboardStats] = useState(null);
   const [loading, setLoading] = useState(true);
   const [vehicles, setVehicles] = useState([]);
+
+  // Toolbar filters state
+  const [search, setSearch] = useState('');
+  const [sortIndex, setSortIndex] = useState(0);
+  const [statusFilter, setStatusFilter] = useState({ Listed: true, Unlisted: true, Snoozed: true });
+  const [selectedVehicleIds, setSelectedVehicleIds] = useState(null);
 
   // Calculate 7-day window from current baseDate (Monday to Sunday)
   const dayOfWeek = (baseDate.getDay() + 6) % 7; // Monday = 0
@@ -75,11 +82,18 @@ export function HostCalendar() {
         console.warn('Could not fetch host calendar:', err.message);
         return null;
       }),
+      apiRequest('/host/dashboard').catch((err) => {
+        console.warn('Could not fetch host dashboard stats:', err.message);
+        return null;
+      }),
       apiRequest('/vehicles').catch(() => null),
-    ]).then(([calRes, vehRes]) => {
+    ]).then(([calRes, dashRes, vehRes]) => {
       if (!active) return;
       if (calRes?.data) {
         setCalendarData(calRes.data);
+      }
+      if (dashRes?.data) {
+        setDashboardStats(dashRes.data);
       }
       const myVehicles = vehRes?.data || [];
       if (Array.isArray(myVehicles) && myVehicles.length > 0) {
@@ -93,43 +107,112 @@ export function HostCalendar() {
     };
   }, [fromStr, toStr]);
 
-  // Displayed vehicle list (from backend vehicles or calendarData.vehicles)
-  const displayVehicles =
-    vehicles.length > 0
-      ? vehicles
-      : calendarData?.vehicles?.length > 0
-      ? calendarData.vehicles
-      : [];
-
-  // Group bookings by vehicleId and date (YYYY-MM-DD)
+  // Map server bookings to date + vehicle key
   const bookingsMap = {};
-  if (calendarData?.days && Array.isArray(calendarData.days)) {
-    calendarData.days.forEach((dayItem) => {
-      const dateKey = dayItem.date ? dayItem.date.split('T')[0] : '';
-      if (!bookingsMap[dateKey]) {
-        bookingsMap[dateKey] = {};
-      }
-      if (dayItem.bookings && Array.isArray(dayItem.bookings)) {
-        dayItem.bookings.forEach((b) => {
-          const vId = b.vehicle?._id || b.vehicle || b.vehicleId;
-          if (vId) {
-            bookingsMap[dateKey][vId] = b;
-          }
-        });
+  if (calendarData?.bookings && Array.isArray(calendarData.bookings)) {
+    calendarData.bookings.forEach((b) => {
+      const vId = b.vehicle?._id || b.vehicle;
+      if (!vId) return;
+      const start = new Date(b.start);
+      const end = new Date(b.end);
+      for (let cur = new Date(start); cur <= end; cur.setDate(cur.getDate() + 1)) {
+        const dKey = cur.toISOString().split('T')[0];
+        if (!bookingsMap[dKey]) bookingsMap[dKey] = {};
+        bookingsMap[dKey][vId] = b;
       }
     });
+  }
+
+  // Filter & sort vehicles for table display
+  let displayVehicles = [...vehicles];
+
+  // 1. Filter by search (model, plate, make)
+  if (search.trim()) {
+    const q = search.trim().toLowerCase();
+    displayVehicles = displayVehicles.filter((v) => {
+      const name = `${v.make || ''} ${v.model || ''} ${v.year || ''}`.toLowerCase();
+      const plate = (v.licensePlate || '').toLowerCase();
+      return name.includes(q) || plate.includes(q);
+    });
+  }
+
+  // 2. Filter by listing status
+  displayVehicles = displayVehicles.filter((v) => {
+    const st = (v.listingStatus || 'listed').toLowerCase();
+    if (st === 'listed' && !statusFilter.Listed) return false;
+    if (st === 'unlisted' && !statusFilter.Unlisted) return false;
+    if (st === 'snoozed' && !statusFilter.Snoozed) return false;
+    return true;
+  });
+
+  // 3. Filter by selected vehicles
+  if (Array.isArray(selectedVehicleIds) && selectedVehicleIds.length > 0) {
+    displayVehicles = displayVehicles.filter((v) =>
+      selectedVehicleIds.includes(v._id || v.id)
+    );
+  }
+
+  // 4. Sort
+  const textCmp = (a, b) => String(a || '').localeCompare(String(b || ''));
+  switch (sortIndex) {
+    case 0: // Make/model/year (A-Z)
+      displayVehicles.sort((a, b) => textCmp(`${a.make} ${a.model} ${a.year}`, `${b.make} ${b.model} ${b.year}`));
+      break;
+    case 1: // Make/model/year (Z-A)
+      displayVehicles.sort((a, b) => textCmp(`${b.make} ${b.model} ${b.year}`, `${a.make} ${a.model} ${a.year}`));
+      break;
+    case 2: // Plate (A-Z)
+      displayVehicles.sort((a, b) => textCmp(a.licensePlate, b.licensePlate));
+      break;
+    case 3: // Plate (Z-A)
+      displayVehicles.sort((a, b) => textCmp(b.licensePlate, a.licensePlate));
+      break;
+    case 4: // Price High to low
+      displayVehicles.sort((a, b) => (b.pricing?.dailyRate || 0) - (a.pricing?.dailyRate || 0));
+      break;
+    case 5: // Price Low to high
+      displayVehicles.sort((a, b) => (a.pricing?.dailyRate || 0) - (b.pricing?.dailyRate || 0));
+      break;
+    case 6: // Booked days (Most to least)
+      displayVehicles.sort((a, b) => (b.bookedDaysNext30 || 0) - (a.bookedDaysNext30 || 0));
+      break;
+    case 7: // Booked days (Least to most)
+      displayVehicles.sort((a, b) => (a.bookedDaysNext30 || 0) - (b.bookedDaysNext30 || 0));
+      break;
+    default:
+      break;
   }
 
   return (
     <Layout role="host">
       <div className="container host-cal">
+        {dashboardStats && (
+          <div className="host-kpi-band" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '16px', marginBottom: '24px' }}>
+            <div className="kpi-card" style={{ background: '#fff', borderRadius: '14px', padding: '16px 20px', border: '1px solid #eef2f6', boxShadow: '0 2px 8px rgba(0,0,0,0.03)' }}>
+              <span style={{ fontSize: '13px', color: '#64748b', fontWeight: 500, display: 'block', marginBottom: '4px' }}>Annual Earnings</span>
+              <strong style={{ fontSize: '24px', fontWeight: 700, color: '#0f172a' }}>${dashboardStats.earningsThisYear ? Number(dashboardStats.earningsThisYear).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '0.00'}</strong>
+            </div>
+            <div className="kpi-card" style={{ background: '#fff', borderRadius: '14px', padding: '16px 20px', border: '1px solid #eef2f6', boxShadow: '0 2px 8px rgba(0,0,0,0.03)' }}>
+              <span style={{ fontSize: '13px', color: '#64748b', fontWeight: 500, display: 'block', marginBottom: '4px' }}>Active Trips</span>
+              <strong style={{ fontSize: '24px', fontWeight: 700, color: '#2563eb' }}>{dashboardStats.activeTrips ?? 0}</strong>
+            </div>
+            <div className="kpi-card" style={{ background: '#fff', borderRadius: '14px', padding: '16px 20px', border: '1px solid #eef2f6', boxShadow: '0 2px 8px rgba(0,0,0,0.03)' }}>
+              <span style={{ fontSize: '13px', color: '#64748b', fontWeight: 500, display: 'block', marginBottom: '4px' }}>Pending Requests</span>
+              <strong style={{ fontSize: '24px', fontWeight: 700, color: dashboardStats.pendingRequests > 0 ? '#ea580c' : '#0f172a' }}>{dashboardStats.pendingRequests ?? 0}</strong>
+            </div>
+            <div className="kpi-card" style={{ background: '#fff', borderRadius: '14px', padding: '16px 20px', border: '1px solid #eef2f6', boxShadow: '0 2px 8px rgba(0,0,0,0.03)' }}>
+              <span style={{ fontSize: '13px', color: '#64748b', fontWeight: 500, display: 'block', marginBottom: '4px' }}>Vehicles Listed</span>
+              <strong style={{ fontSize: '24px', fontWeight: 700, color: '#16a34a' }}>{dashboardStats.listedVehicles ?? 0} <span style={{ fontSize: '14px', fontWeight: 500, color: '#94a3b8' }}>/ {dashboardStats.totalVehicles ?? 0}</span></strong>
+            </div>
+          </div>
+        )}
         <div className="toolbar">
           <MonthNav currentDate={baseDate} onChange={setBaseDate} onOpen={() => setCal(true)} />
           <div className="toolbar__right">
-            <SearchField />
-            <SortPopover />
-            <ListingStatusPopover />
-            <VehiclePopover />
+            <SearchField value={search} onChange={setSearch} />
+            <SortPopover value={sortIndex} onChange={setSortIndex} />
+            <ListingStatusPopover value={statusFilter} onChange={setStatusFilter} />
+            <VehiclePopover selectedVehicles={selectedVehicleIds} onSelectionChange={setSelectedVehicleIds} />
           </div>
         </div>
         <div className="table-scroll">
@@ -177,9 +260,16 @@ export function HostCalendar() {
 
                         if (b) {
                           const hrs = b.pricing?.numberOfHours || 24;
-                          const rev = b.pricing?.total || 0;
+                          // Use host share or totalAmount or fallback to vehicle dailyRate
+                          const hostCut = b.hostEarnings != null
+                            ? b.hostEarnings
+                            : b.pricing?.totalAmount != null
+                            ? b.pricing.totalAmount
+                            : b.pricing?.total != null
+                            ? b.pricing.total
+                            : ((veh.pricing?.dailyRate || 100) * (hrs / 24));
                           vehWeeklyHours += hrs;
-                          vehWeeklyRev += rev;
+                          vehWeeklyRev += hostCut;
                           const guestName = b.guest ? `${b.guest.firstName || ''} ${b.guest.lastName || ''}`.trim() : 'Guest';
                           const loc = b.pickup?.location || veh.location?.address || 'Pickup location';
 
@@ -189,7 +279,7 @@ export function HostCalendar() {
                                 <div className="slot__box">
                                   <b>{guestName}</b>
                                   <small title={loc}>{loc}</small>
-                                  <small className="muted">${Number(rev).toFixed(2)}</small>
+                                  <small className="muted">${Number(hostCut).toFixed(2)}</small>
                                 </div>
                                 <span className="slot__total">Total: {hrs} hrs</span>
                               </div>
@@ -216,7 +306,16 @@ export function HostCalendar() {
           <span />
         </div>
       </div>
-      {cal && <DateRangeModal onClose={() => setCal(false)} />}
+      {cal && (
+        <DateRangeModal
+          onClose={() => setCal(false)}
+          onSave={(range) => {
+            if (range && range[0]) {
+              setBaseDate(new Date(range[0]));
+            }
+          }}
+        />
+      )}
     </Layout>
   );
 }
@@ -225,7 +324,8 @@ function TripCard({ booking, thumb, ending, onOpen }) {
   const guestName = booking?.guest ? `${booking.guest.firstName || ''} ${booking.guest.lastName || ''}`.trim() : 'Guest';
   const pickupLoc = booking?.pickup?.location || 'Pickup location';
   const dropoffLoc = booking?.dropoff?.location || 'Dropoff location';
-  const earnings = booking?.pricing?.total != null ? `$${booking.pricing.total.toFixed(2)}` : '$0.00';
+  const rawTotal = booking?.pricing?.totalAmount ?? booking?.pricing?.total ?? 0;
+  const earnings = `$${Number(rawTotal).toFixed(2)}`;
   const duration = booking?.pricing?.numberOfHours ? `${booking.pricing.numberOfHours} hours` : 'Flexible';
   
   const v = booking?.vehicle;
@@ -738,7 +838,8 @@ function TripDrawer({ booking, history, onClose, onRefresh }) {
   const guestName = activeBooking?.guest ? `${activeBooking.guest.firstName || ''} ${activeBooking.guest.lastName || ''}`.trim() : 'Guest';
   const pickupLoc = activeBooking?.pickup?.location || 'Pickup location';
   const dropoffLoc = activeBooking?.dropoff?.location || 'Dropoff location';
-  const earnings = activeBooking?.pricing?.total != null ? `$${activeBooking.pricing.total.toFixed(2)}` : '$0.00';
+  const rawDrawerTotal = activeBooking?.pricing?.totalAmount ?? activeBooking?.pricing?.total ?? 0;
+  const earnings = `$${Number(rawDrawerTotal).toFixed(2)}`;
   const pickupDate = activeBooking?.pickup?.dateTime ? new Date(activeBooking.pickup.dateTime) : null;
   const dropoffDate = activeBooking?.dropoff?.dateTime ? new Date(activeBooking.dropoff.dateTime) : null;
   const pickupTime = pickupDate ? pickupDate.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' }) : 'Flexible';
@@ -1049,19 +1150,28 @@ export function HostTrips({ tab = 'booked' }) {
   const [selectedBooking, setSelectedBooking] = useState(null);
   const [serverBookings, setServerBookings] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [selectedVehicleFilter, setSelectedVehicleFilter] = useState(null);
   const history = tab === 'history';
 
   const fetchTrips = () => {
     let active = true;
     setLoading(true);
     const scope = history ? 'previous' : 'current';
-    apiRequest(`/bookings?role=host&scope=${scope}`)
+
+    const requestPromise = selectedVehicleFilter
+      ? apiRequest(`/bookings/vehicle/${selectedVehicleFilter}`)
+      : apiRequest(`/bookings?role=host&scope=${scope}`);
+
+    requestPromise
       .then((res) => {
         if (!active) return;
-        const list = res?.data || [];
+        let list = res?.data || [];
         if (Array.isArray(list)) {
+          if (selectedVehicleFilter) {
+            const allowed = history ? ['completed', 'cancelled', 'rejected'] : ['pending', 'approved', 'active'];
+            list = list.filter((b) => allowed.includes(b.status));
+          }
           setServerBookings(list);
-          // If drawer is currently open, keep active booking state in sync
           setSelectedBooking((prev) => {
             if (!prev) return null;
             const updated = list.find((b) => (b._id || b.id) === (prev._id || prev.id));
@@ -1080,7 +1190,7 @@ export function HostTrips({ tab = 'booked' }) {
 
   useEffect(() => {
     return fetchTrips();
-  }, [history]);
+  }, [history, selectedVehicleFilter]);
 
   return (
     <Layout role="host">
@@ -1099,7 +1209,7 @@ export function HostTrips({ tab = 'booked' }) {
                 History
               </button>
             </div>
-            <VehiclePopover />
+            <VehiclePopover onSelectionChange={(ids) => setSelectedVehicleFilter(ids?.length === 1 ? ids[0] : null)} />
           </div>
         </div>
         {loading && <p style={{ color: '#888', padding: '10px 0' }}>Loading host reservations...</p>}

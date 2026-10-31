@@ -25,13 +25,20 @@ function ToolButton({ icon, label, onClick }) {
   );
 }
 
-function PopFooter({ close, primary = 'Apply', onReset }) {
+function PopFooter({ close, primary = 'Apply', onReset, onPrimary }) {
   return (
     <div className="pop-foot">
       <button type="button" className="btn btn-outline-muted" onClick={onReset}>
         Reset
       </button>
-      <button type="button" className="btn btn-primary" onClick={close}>
+      <button
+        type="button"
+        className="btn btn-primary"
+        onClick={() => {
+          if (onPrimary) onPrimary();
+          close();
+        }}
+      >
         {primary}
       </button>
     </div>
@@ -43,19 +50,25 @@ const sorts = [
   'Make/model/year (A-Z)', 'Make/model/year (Z-A)', 'License plate (A-Z)', 'License plate (Z-A)',
   'Today’s price (High to low)', 'Today’s price (Low to high)', 'Booked days (Most to least)', 'Booked days (Least to most)',
 ];
-export function SortPopover() {
-  const [v, setV] = useState(0);
+export function SortPopover({ value = 0, onChange }) {
+  const [v, setV] = useState(value);
   return (
     <Popover align="right" width={524} trigger={({ toggle }) => <ToolButton icon={<TbArrowsSort size={22} />} label="Short by" onClick={toggle} />}>
       {({ close }) => (
         <div className="pop-list">
           {sorts.map((s, i) => (
-            <Radio key={s} name="sort" checked={v === i} onChange={() => setV(i)} className="radio--row">
+            <Radio key={s} name="sort" checked={v === i} onChange={() => {
+              setV(i);
+              if (onChange) onChange(i);
+            }} className="radio--row">
               {s}
               {i > 5 && <small> Based on next 30 days</small>}
             </Radio>
           ))}
-          <PopFooter close={close} onReset={() => setV(0)} />
+          <PopFooter close={close} onReset={() => {
+            setV(0);
+            if (onChange) onChange(0);
+          }} />
         </div>
       )}
     </Popover>
