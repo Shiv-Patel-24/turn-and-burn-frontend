@@ -1,5 +1,5 @@
 import { useEffect, useState, useRef } from 'react';
-import { FiSearch, FiMoreVertical, FiImage, FiSmile, FiSend, FiMapPin, FiMic, FiPhone, FiVideo, FiMessageSquare } from 'react-icons/fi';
+import { FiSearch, FiMoreVertical, FiImage, FiSmile, FiSend, FiMapPin, FiMic, FiPhone, FiVideo, FiMessageSquare, FiCheckCircle, FiAlertCircle, FiSquare } from 'react-icons/fi';
 import { BsCheck2All } from 'react-icons/bs';
 import { FaStar } from 'react-icons/fa';
 import { TbBuildingSkyscraper } from 'react-icons/tb';
@@ -40,6 +40,21 @@ export default function Inbox({ role = 'user' }) {
   const [text, setText] = useState('');
   const messagesEndRef = useRef(null);
 
+  // Presence state
+  const [presence, setPresence] = useState({ online: false, lastSeenAt: null });
+
+  // Moderation state
+  const [blocking, setBlocking] = useState(false);
+  const [modNotice, setModNotice] = useState('');
+
+  // Voice recording state
+  const [recording, setRecording] = useState(false);
+  const [recordSeconds, setRecordSeconds] = useState(0);
+  const [uploadingVoice, setUploadingVoice] = useState(false);
+  const mediaRecorderRef = useRef(null);
+  const audioChunksRef = useRef([]);
+  const recordIntervalRef = useRef(null);
+
   const currentUser = getCurrentUser() || {};
   const myUserId = currentUser._id || currentUser.id;
 
@@ -68,7 +83,6 @@ export default function Inbox({ role = 'user' }) {
       })
       .catch((err) => {
         console.warn('Could not load live conversations from server:', err.message);
-        // keep empty or fallback
       })
       .finally(() => {
         if (activeEffect) setLoadingConv(false);
@@ -85,6 +99,174 @@ export default function Inbox({ role = 'user' }) {
 
   const activeConv = conversations[active];
   const activeConvId = activeConv?._id || activeConv?.id;
+  const otherParticipantId = activeConv?.otherParticipant?._id;
+
+  // Fetch real-time presence (GET /messages/presence/:userId)
+  useEffect(() => {
+    if (!otherParticipantId) {
+      setPresence({ online: false, lastSeenAt: null });
+      return;
+    }
+
+    const fetchPresence = () => {
+      apiRequest(`/messages/presence/${otherParticipantId}`)
+        .then((res) => {
+          if (res?.data) {
+            setPresence({
+              online: !!res.data.online,
+              lastSeenAt: res.data.lastSeenAt || null,
+            });
+          }
+        })
+        .catch(() => {});
+    };
+
+    fetchPresence();
+    const interval = setInterval(fetchPresence, 15000);
+    return () => clearInterval(interval);
+  }, [otherParticipantId]);
+
+  // Moderation status
+  const isBlockedByMe = (activeConv?.blockedBy || []).some((id) => String(id) === String(myUserId));
+  const isBlockedAny = (activeConv?.blockedBy || []).length > 0;
+
+  const handleBlockUser = async () => {
+    if (!activeConvId) return;
+    if (!window.confirm(`Are you sure you want to block this user? You will no longer receive messages in this conversation.`)) return;
+
+    setBlocking(true);
+    setModNotice('');
+    try {
+      await apiRequest(`/messages/conversations/${activeConvId}/block`, { method: 'POST' });
+      setConversations((prev) =>
+        prev.map((c) =>
+          (c._id || c.id) === activeConvId
+            ? { ...c, blockedBy: [...(c.blockedBy || []), myUserId] }
+            : c
+        )
+      );
+      setModNotice('User has been blocked.');
+      setTimeout(() => setModNotice(''), 4000);
+    } catch (err) {
+      alert(err?.message || 'Failed to block conversation.');
+    } finally {
+      setBlocking(false);
+    }
+  };
+
+  const handleUnblockUser = async () => {
+    if (!activeConvId) return;
+    setBlocking(true);
+    setModNotice('');
+    try {
+      await apiRequest(`/messages/conversations/${activeConvId}/unblock`, { method: 'POST' });
+      setConversations((prev) =>
+        prev.map((c) =>
+          (c._id || c.id) === activeConvId
+            ? { ...c, blockedBy: (c.blockedBy || []).filter((id) => String(id) !== String(myUserId)) }
+            : c
+        )
+      );
+      setModNotice('User has been unblocked.');
+      setTimeout(() => setModNotice(''), 4000);
+    } catch (err) {
+      alert(err?.message || 'Failed to unblock conversation.');
+    } finally {
+      setBlocking(false);
+    }
+  };
+
+  // Voice message recording (POST /messages/voice-upload)
+  const startRecording = async () => {
+    if (recording || isBlockedAny) return;
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      audioChunksRef.current = [];
+      const mime = MediaRecorder.isTypeSupported('audio/webm') ? 'audio/webm' : 'audio/mp4';
+      const recorder = new MediaRecorder(stream, { mimeType: mime });
+
+      recorder.ondataavailable = (e) => {
+        if (e.data && e.data.size > 0) {
+          audioChunksRef.current.push(e.data);
+        }
+      };
+
+      recorder.start(100);
+      mediaRecorderRef.current = recorder;
+      setRecording(true);
+      setRecordSeconds(0);
+
+      recordIntervalRef.current = setInterval(() => {
+        setRecordSeconds((s) => s + 1);
+      }, 1000);
+    } catch (err) {
+      console.warn('Microphone access denied:', err.message);
+      alert('Microphone access is required to record voice messages.');
+    }
+  };
+
+  const cancelRecording = () => {
+    if (mediaRecorderRef.current) {
+      mediaRecorderRef.current.stream?.getTracks().forEach((t) => t.stop());
+      mediaRecorderRef.current.stop();
+    }
+    if (recordIntervalRef.current) clearInterval(recordIntervalRef.current);
+    audioChunksRef.current = [];
+    setRecording(false);
+    setRecordSeconds(0);
+  };
+
+  const sendVoiceRecording = async () => {
+    if (!mediaRecorderRef.current || !activeConvId) return;
+
+    setUploadingVoice(true);
+    const duration = recordSeconds || 1;
+
+    mediaRecorderRef.current.onstop = async () => {
+      try {
+        const mime = mediaRecorderRef.current.mimeType || 'audio/webm';
+        const audioBlob = new Blob(audioChunksRef.current, { type: mime });
+        const ext = mime.includes('mp4') ? 'm4a' : 'webm';
+        const file = new File([audioBlob], `voice-msg-${Date.now()}.${ext}`, { type: mime });
+
+        const formData = new FormData();
+        formData.append('voice', file);
+
+        // Upload to POST /messages/voice-upload
+        const uploadRes = await apiRequest('/messages/voice-upload', {
+          method: 'POST',
+          body: formData,
+        });
+
+        const fileUrl = uploadRes?.data?.url;
+        if (!fileUrl) throw new Error('Voice upload did not return URL');
+
+        // Send voice message
+        const msgRes = await apiRequest(`/messages/conversations/${activeConvId}/messages`, {
+          method: 'POST',
+          body: {
+            text: 'Voice message',
+            voiceUrl: fileUrl,
+          },
+        });
+
+        if (msgRes?.data) {
+          setMessages((prev) => [...prev, msgRes.data]);
+        }
+      } catch (err) {
+        console.warn('Voice send failed:', err.message);
+        alert(err?.message || 'Failed to send voice message.');
+      } finally {
+        setUploadingVoice(false);
+        setRecording(false);
+        setRecordSeconds(0);
+        if (recordIntervalRef.current) clearInterval(recordIntervalRef.current);
+      }
+    };
+
+    mediaRecorderRef.current.stream?.getTracks().forEach((t) => t.stop());
+    mediaRecorderRef.current.stop();
+  };
 
   // Load messages for currently selected conversation and mark as read
   useEffect(() => {
@@ -190,7 +372,7 @@ export default function Inbox({ role = 'user' }) {
     const other = c.otherParticipant || {};
     const name = `${other.firstName || ''} ${other.lastName || ''}`.toLowerCase();
     const vehicleName = `${c.vehicle?.year || ''} ${c.vehicle?.make || ''} ${c.vehicle?.model || ''}`.toLowerCase();
-    const lastTxt = (c.lastMessage?.text || '').toLowerCase();
+    const lastTxt = (c.lastMessage?.text || (c.lastMessage?.voiceUrl ? 'voice message' : '')).toLowerCase();
     return name.includes(q) || vehicleName.includes(q) || lastTxt.includes(q);
   });
 
@@ -227,8 +409,8 @@ export default function Inbox({ role = 'user' }) {
               const preview =
                 lastMsg.type === 'call'
                   ? lastMsg.text || 'Call'
-                  : lastMsg.type === 'voice'
-                  ? 'Voice message'
+                  : (lastMsg.voiceUrl || lastMsg.type === 'voice')
+                  ? '🎤 Voice message'
                   : lastMsg.text || 'No messages yet';
               const timeDisplay = formatChatTime(c.lastMessageAt || lastMsg.createdAt || c.updatedAt);
 
@@ -294,9 +476,32 @@ export default function Inbox({ role = 'user' }) {
         </aside>
 
         <section className="thread">
-          <header className="thread__head">
-            <img src={activeAvatar} alt={activeOtherName} onError={(e) => { e.currentTarget.src = img('av-killan.jpg'); }} />
-            <h2>{activeOtherName}</h2>
+          <header className="thread__head" style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            <div style={{ position: 'relative' }}>
+              <img src={activeAvatar} alt={activeOtherName} onError={(e) => { e.currentTarget.src = img('av-killan.jpg'); }} />
+              <span
+                style={{
+                  position: 'absolute',
+                  bottom: 2,
+                  right: 2,
+                  width: 10,
+                  height: 10,
+                  borderRadius: '50%',
+                  background: presence.online ? '#22c55e' : '#94a3b8',
+                  border: '2px solid #fff',
+                }}
+              />
+            </div>
+            <div>
+              <h2 style={{ margin: 0, fontSize: '18px' }}>{activeOtherName}</h2>
+              {presence.online ? (
+                <small style={{ color: '#16a34a', fontWeight: 600 }}>● Online</small>
+              ) : (
+                <small style={{ color: '#94a3b8' }}>
+                  {presence.lastSeenAt ? `Last seen ${formatChatTime(presence.lastSeenAt)}` : 'Offline'}
+                </small>
+              )}
+            </div>
           </header>
 
           <div className="thread__msgs" style={{ minHeight: '380px', maxHeight: '580px', overflowY: 'auto' }}>
@@ -324,11 +529,37 @@ export default function Inbox({ role = 'user' }) {
                           {m.callMeta?.callType === 'video' ? <FiVideo size={16} /> : <FiPhone size={16} />}
                           <span>{m.text || 'Call session'}</span>
                         </p>
-                      ) : m.type === 'voice' ? (
-                        <p className={`bubble ${isMe ? 'bubble--me' : ''}`} style={{ display: 'inline-flex', alignItems: 'center', gap: '8px' }}>
-                          <FiMic size={16} />
-                          <span>Voice Message {m.voiceDurationSeconds ? `(${m.voiceDurationSeconds}s)` : ''}</span>
-                        </p>
+                      ) : (m.voiceUrl || m.fileUrl || m.type === 'voice') ? (
+                        <div
+                          className={`bubble ${isMe ? 'bubble--me' : ''}`}
+                          style={{
+                            display: 'flex',
+                            flexDirection: 'column',
+                            gap: 6,
+                            padding: '10px 14px',
+                            borderRadius: '14px',
+                            background: isMe ? '#0a5cff' : '#f1f5f9',
+                            color: isMe ? '#ffffff' : '#0f172a',
+                          }}
+                        >
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: '12px', opacity: 0.9 }}>
+                            <FiMic size={14} /> Voice Message {m.voiceDurationSeconds ? `(${m.voiceDurationSeconds}s)` : ''}
+                          </div>
+                          {(m.voiceUrl || m.fileUrl) ? (
+                            <audio
+                              controls
+                              src={m.voiceUrl || m.fileUrl}
+                              style={{
+                                height: '32px',
+                                width: '220px',
+                                outline: 'none',
+                                borderRadius: '16px',
+                              }}
+                            />
+                          ) : (
+                            <span style={{ fontSize: '12px', fontStyle: 'italic' }}>Audio recording</span>
+                          )}
+                        </div>
                       ) : (
                         <p className={`bubble ${isMe ? 'bubble--me' : ''}`}>
                           {m.text}
@@ -382,26 +613,104 @@ export default function Inbox({ role = 'user' }) {
             <div ref={messagesEndRef} />
           </div>
 
-          <form
-            className="composer"
-            onSubmit={(e) => {
-              e.preventDefault();
-              send();
-            }}
-          >
-            <input
-              placeholder="Type your message..."
-              value={text}
-              onChange={(e) => setText(e.target.value)}
-              disabled={sending}
-            />
-            <FiImage size={22} style={{ cursor: 'pointer' }} />
-            <FiSmile size={22} style={{ cursor: 'pointer' }} />
-            <button type="submit" aria-label="Send" disabled={sending || !text.trim()}>
-              <FiSend size={22} />
-            </button>
-            <FiMapPin size={22} style={{ cursor: 'pointer' }} />
-          </form>
+          {/* Voice recording bar or Blocked warning or Normal composer */}
+          {recording ? (
+            <div
+              className="composer"
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 12,
+                background: '#fef2f2',
+                border: '1px solid #fecaca',
+                padding: '10px 16px',
+                borderRadius: '12px',
+              }}
+            >
+              <span
+                style={{
+                  width: 12,
+                  height: 12,
+                  borderRadius: '50%',
+                  background: '#ef4444',
+                  display: 'inline-block',
+                }}
+              />
+              <span style={{ fontSize: '14px', fontWeight: 700, color: '#991b1b', minWidth: '45px' }}>
+                {Math.floor(recordSeconds / 60)}:{String(recordSeconds % 60).padStart(2, '0')}
+              </span>
+              <span style={{ fontSize: '13px', color: '#b91c1c', flex: 1 }}>
+                Recording voice message...
+              </span>
+              <button
+                type="button"
+                className="chip-btn"
+                style={{ background: '#fff', color: '#dc2626', border: '1px solid #fca5a5' }}
+                onClick={cancelRecording}
+                disabled={uploadingVoice}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="btn btn-primary"
+                style={{ padding: '6px 16px', fontSize: '13px' }}
+                onClick={sendVoiceRecording}
+                disabled={uploadingVoice}
+              >
+                {uploadingVoice ? 'Uploading...' : 'Send Voice'}
+              </button>
+            </div>
+          ) : isBlockedAny ? (
+            <div
+              style={{
+                padding: '16px 20px',
+                background: '#fef2f2',
+                border: '1px solid #fecaca',
+                borderRadius: '12px',
+                margin: '12px 0',
+                color: '#991b1b',
+                fontSize: '14px',
+                textAlign: 'center',
+              }}
+            >
+              <strong>Conversation Blocked</strong>
+              <p style={{ margin: '4px 0 0', fontSize: '12px', color: '#b91c1c' }}>
+                {isBlockedByMe
+                  ? 'You have blocked this conversation. Click "Unblock User" in the details panel to resume messaging.'
+                  : 'This conversation has been blocked by the other participant.'}
+              </p>
+            </div>
+          ) : (
+            <form
+              className="composer"
+              onSubmit={(e) => {
+                e.preventDefault();
+                send();
+              }}
+            >
+              <input
+                placeholder="Type your message..."
+                value={text}
+                onChange={(e) => setText(e.target.value)}
+                disabled={sending}
+              />
+              <button
+                type="button"
+                onClick={startRecording}
+                style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '0 4px', color: '#0a5cff' }}
+                title="Record voice message"
+              >
+                <FiMic size={22} />
+              </button>
+              <FiImage size={22} style={{ cursor: 'pointer' }} />
+              <FiSmile size={22} style={{ cursor: 'pointer' }} />
+              <button type="submit" aria-label="Send" disabled={sending || !text.trim()}>
+                <FiSend size={22} />
+              </button>
+              <FiMapPin size={22} style={{ cursor: 'pointer' }} />
+            </form>
+          )}
         </section>
 
         <aside className="contact-card">
@@ -461,9 +770,54 @@ export default function Inbox({ role = 'user' }) {
               </span>
             </div>
           </div>
-          <button type="button" className="btn-block-red">
-            Block
-          </button>
+
+          {modNotice && (
+            <div
+              style={{
+                padding: '8px 12px',
+                background: '#ecfdf5',
+                border: '1px solid #a7f3d0',
+                borderRadius: '8px',
+                color: '#065f46',
+                fontSize: '12px',
+                margin: '12px 0',
+                textAlign: 'center',
+              }}
+            >
+              <FiCheckCircle size={14} style={{ verticalAlign: 'middle', marginRight: 4 }} />
+              {modNotice}
+            </div>
+          )}
+
+          {isBlockedByMe ? (
+            <button
+              type="button"
+              className="btn btn-outline"
+              style={{
+                width: '100%',
+                borderColor: '#0a5cff',
+                color: '#0a5cff',
+                fontWeight: 600,
+                height: '46px',
+                borderRadius: '8px',
+                marginTop: '12px',
+              }}
+              onClick={handleUnblockUser}
+              disabled={blocking}
+            >
+              {blocking ? 'Unblocking...' : 'Unblock User'}
+            </button>
+          ) : (
+            <button
+              type="button"
+              className="btn-block-red"
+              style={{ marginTop: '12px' }}
+              onClick={handleBlockUser}
+              disabled={blocking}
+            >
+              {blocking ? 'Blocking...' : 'Block User'}
+            </button>
+          )}
         </aside>
       </div>
     </Layout>

@@ -3,7 +3,8 @@ import { FiChevronRight, FiArrowRight, FiCalendar, FiMapPin, FiSend, FiBarChart2
 import { IoCarSportOutline, IoAirplane } from 'react-icons/io5';
 import Layout from '../components/Layout';
 import { SearchPanel, Segmented } from '../components/Search';
-import { CarCard, CarRow } from '../components/Cards';
+import { CarCard, CarRow, Testimonials } from '../components/Cards';
+import { CityPriceWidget } from '../components/CityPriceWidget';
 import { carAt, collectionTabs, rentalSections, img, formatVehicle } from '../data';
 import { navigate } from '../router';
 import { useUI } from '../ui';
@@ -26,8 +27,21 @@ const bodyTypes = [
 /* Figma: "MacBook Pro 14 - 1" (guest) and "MacBook Pro 14 - 6" (logged in) */
 export default function Home({ role = 'guest' }) {
   const { open } = useUI();
-  const [mode, setMode] = useState('Hourly');
-  const [trip, setTrip] = useState('One Way Trip');
+  const [mode, setMode] = useState(() => {
+    try {
+      const saved = JSON.parse(sessionStorage.getItem('turn_and_burn_search_criteria') || '{}');
+      if (saved.mode) return saved.mode.charAt(0).toUpperCase() + saved.mode.slice(1);
+    } catch {}
+    return 'Hourly';
+  });
+  const [trip, setTrip] = useState(() => {
+    try {
+      const saved = JSON.parse(sessionStorage.getItem('turn_and_burn_search_criteria') || '{}');
+      if (saved.tripType === 'round') return 'Round Trip';
+      if (saved.tripType === 'oneway') return 'One Way Trip';
+    } catch {}
+    return 'One Way Trip';
+  });
   const [cat, setCat] = useState('All');
   const [body, setBody] = useState(-1);
   const [tab, setTab] = useState(collectionTabs[0]);
@@ -154,7 +168,7 @@ export default function Home({ role = 'guest' }) {
             <Segmented options={['Hourly', 'Daily']} value={mode} onChange={setMode} />
             <Segmented options={['One Way Trip', 'Round Trip']} value={trip} onChange={setTrip} />
           </div>
-          <SearchPanel withTime mode={mode} trip={trip} ctaTo={isUser ? '/app/cars' : '/app/cars'} />
+          <SearchPanel withTime mode={mode} trip={trip} ctaTo={isUser ? '/app/cars' : '/cars'} />
         </div>
       </section>
 
@@ -175,7 +189,7 @@ export default function Home({ role = 'guest' }) {
               className={`body-type ${body === i ? 'is-active' : ''}`}
               onClick={() => {
                 setBody(i);
-                navigate(`/app/cars?style=${encodeURIComponent(label)}`);
+                navigate(`${isUser ? '/app/cars' : '/cars'}?style=${encodeURIComponent(label)}`);
               }}
             >
               <img src={img(`body-${icon}.png`)} alt="" />
@@ -220,7 +234,7 @@ export default function Home({ role = 'guest' }) {
                     type="button"
                     onClick={() => {
                       setSelectedBrand(brandName);
-                      navigate(`/app/cars?make=${encodeURIComponent(brandName)}`);
+                      navigate(`${isUser ? '/app/cars' : '/cars'}?make=${encodeURIComponent(brandName)}`);
                     }}
                     style={{
                       padding: '6px 16px',
@@ -273,7 +287,7 @@ export default function Home({ role = 'guest' }) {
                 ))}
           </div>
           <div className="center">
-            <button type="button" className="btn btn-primary btn-pill" onClick={() => (isUser ? navigate('/app/cars') : open('signup'))}>
+            <button type="button" className="btn btn-primary btn-pill" onClick={() => navigate(isUser ? '/app/cars' : '/cars')}>
               See all Cars <FiArrowRight size={20} />
             </button>
           </div>
@@ -293,6 +307,14 @@ export default function Home({ role = 'guest' }) {
           ))}
         </div>
       )}
+
+      {/* Dynamic City Rental Pricing Widget */}
+      <CityPriceWidget defaultCity="Charlotte" />
+
+      {/* Live Customer Testimonials Slider */}
+      <div className="container" style={{ margin: '40px auto 60px' }}>
+        <Testimonials />
+      </div>
     </Layout>
   );
 }

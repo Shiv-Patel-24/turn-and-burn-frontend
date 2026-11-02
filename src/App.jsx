@@ -2,6 +2,7 @@ import { Router, Link } from './router';
 import { UIProvider, useUI } from './ui';
 import { UserMenu, HostMenu, LogoutModal } from './components/Layout';
 import { SignUpModal, LoginModal, ForgotModal, OtpModal } from './components/AuthModals';
+import { FeedbackModal } from './components/FeedbackModal';
 import Home from './pages/Home';
 import { About, Contact, Terms, Blogs } from './pages/InfoPages';
 import CarDetail from './pages/CarDetail';
@@ -24,6 +25,7 @@ export const routes = [
   ['/contact', Contact, { role: 'guest' }, 'MacBook Pro 14" - 3 · Contact'],
   ['/terms', Terms, { role: 'guest' }, 'MacBook Pro 14" - 4 · Terms & Conditions'],
   ['/car/:id', CarDetail, { role: 'guest' }, 'MacBook Pro 14" - 5 · Car detail'],
+  ['/cars', Listing, { role: 'guest' }, 'MacBook Pro 14" - 7 · Car listing + filters (guest)'],
   ['/blogs', Blogs, { role: 'guest' }, 'MacBook Pro 14" - 21 · Blogs'],
 
   // ----- Guest user (logged in) -----
@@ -162,6 +164,8 @@ function GlobalModals() {
       );
     case 'logout':
       return <LogoutModal onClose={close} />;
+    case 'feedback':
+      return <FeedbackModal onClose={close} />;
     default:
       return null;
   }

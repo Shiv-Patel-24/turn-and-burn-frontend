@@ -9,7 +9,7 @@ import { img, LOREM } from '../../data';
 import { PaymentFields, AgreeBox, SuccessModal } from './Booking';
 import { InvoiceModal } from '../../components/InvoiceModal';
 import { navigate } from '../../router';
-import { apiRequest, getCurrentUser, setCurrentUser, downloadFile } from '../../lib/api';
+import { apiRequest, getCurrentUser, setCurrentUser, downloadFile, clearSession } from '../../lib/api';
 
 function PageTitle({ title, children, right }) {
   return (
@@ -195,12 +195,23 @@ export function Profile({ role = 'user' }) {
   const [gender, setGender] = useState('Female');
   const [country, setCountry] = useState('US');
   const [language, setLanguage] = useState('English');
+  const [langOptions, setLangOptions] = useState(['English', 'Hindi', 'Bengali', 'Gujarati', 'Kannada', 'Malayalam', 'Marathi', 'Tamil', 'Telugu']);
   const [timeZone, setTimeZone] = useState('Chicago (GMT-5)');
   const [saved, setSaved] = useState(false);
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
     let active = true;
+    apiRequest('/content/languages')
+      .then((res) => {
+        if (!active) return;
+        const list = res?.data || [];
+        if (Array.isArray(list) && list.length > 0) {
+          setLangOptions(list.map((l) => l.name || l));
+        }
+      })
+      .catch(() => {});
+
     apiRequest('/users/me')
       .then((res) => {
         if (!active) return;
@@ -316,7 +327,7 @@ export function Profile({ role = 'user' }) {
             <Select value={country} onChange={setCountry} options={['US', 'United States', 'UK', 'India']} />
           </Field>
           <Field label="Language">
-            <Select value={language} onChange={setLanguage} options={['English', 'Spanish', 'Hindi']} />
+            <Select value={language} onChange={setLanguage} options={langOptions} />
           </Field>
           <Field label="Time Zone">
             <Select value={timeZone} onChange={setTimeZone} options={['Chicago (GMT-5)', 'New York (GMT-4)', 'Los Angeles (GMT-7)']} />
@@ -333,8 +344,145 @@ export function Profile({ role = 'user' }) {
         </div>
 
         <DriverLicenseSection user={user} onUpdate={(updated) => setUser(updated)} />
+        <DeactivateAccountSection />
       </div>
     </Layout>
+  );
+}
+
+function DeactivateAccountSection() {
+  const [showModal, setShowModal] = useState(false);
+
+  return (
+    <div style={{ marginTop: '36px', border: '1px solid #fee2e2', backgroundColor: '#fff5f5', borderRadius: '12px', padding: '24px' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '16px' }}>
+        <div style={{ maxWidth: '620px' }}>
+          <h3 style={{ margin: '0 0 6px 0', color: '#991b1b', fontSize: '18px', fontWeight: 600 }}>
+            Danger Zone: Deactivate Account
+          </h3>
+          <p style={{ margin: 0, color: '#7f1d1d', fontSize: '13px', lineHeight: '1.5' }}>
+            Deactivating your account will unlist all of your active vehicle listings, cancel all active sessions, and mark your profile as inactive. Note: You cannot deactivate your account if you have open, pending, or ongoing active reservations.
+          </p>
+        </div>
+        <button
+          type="button"
+          className="btn"
+          onClick={() => setShowModal(true)}
+          style={{
+            backgroundColor: '#dc2626',
+            color: '#ffffff',
+            border: 'none',
+            padding: '10px 20px',
+            borderRadius: '8px',
+            fontWeight: 600,
+            cursor: 'pointer'
+          }}
+        >
+          Deactivate Account
+        </button>
+      </div>
+
+      {showModal && <DeactivateModal onClose={() => setShowModal(false)} />}
+    </div>
+  );
+}
+
+function DeactivateModal({ onClose }) {
+  const [confirmText, setConfirmText] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+
+  const isConfirmed = confirmText.trim().toUpperCase() === 'DEACTIVATE';
+
+  const handleDeactivate = async () => {
+    if (!isConfirmed || loading) return;
+    setLoading(true);
+    setError('');
+    try {
+      await apiRequest('/users/me', { method: 'DELETE' });
+      clearSession();
+      alert('Your account has been deactivated successfully.');
+      navigate('/');
+      window.location.reload();
+    } catch (err) {
+      console.warn('Deactivate account error:', err);
+      setError(err?.message || 'Failed to deactivate account.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <Modal onClose={onClose} size="sm">
+      <ModalHeader title="Deactivate Account" onClose={onClose} />
+      <div style={{ padding: '20px' }}>
+        <div style={{
+          backgroundColor: '#fee2e2',
+          borderLeft: '4px solid #dc2626',
+          padding: '12px 16px',
+          borderRadius: '6px',
+          marginBottom: '16px'
+        }}>
+          <b style={{ color: '#991b1b', display: 'block', marginBottom: '4px' }}>Warning: This action is permanent!</b>
+          <p style={{ margin: 0, color: '#7f1d1d', fontSize: '13px', lineHeight: '1.4' }}>
+            All your vehicle listings will be immediately unlisted and your login sessions terminated. Any ongoing or pending bookings must be cancelled or completed before proceeding.
+          </p>
+        </div>
+
+        {error && (
+          <div style={{
+            backgroundColor: '#fef2f2',
+            border: '1px solid #f87171',
+            color: '#b91c1c',
+            padding: '10px 14px',
+            borderRadius: '8px',
+            marginBottom: '16px',
+            fontSize: '13px'
+          }}>
+            {error}
+          </div>
+        )}
+
+        <label style={{ display: 'block', fontSize: '13px', color: '#374151', marginBottom: '8px', fontWeight: 500 }}>
+          To confirm, please type <strong style={{ color: '#dc2626' }}>DEACTIVATE</strong> below:
+        </label>
+        <Input
+          type="text"
+          value={confirmText}
+          onChange={(e) => setConfirmText(e.target.value)}
+          placeholder="DEACTIVATE"
+          style={{ width: '100%', marginBottom: '20px' }}
+        />
+
+        <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end' }}>
+          <button
+            type="button"
+            className="btn btn-outline"
+            onClick={onClose}
+            disabled={loading}
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            className="btn"
+            disabled={!isConfirmed || loading}
+            onClick={handleDeactivate}
+            style={{
+              backgroundColor: isConfirmed && !loading ? '#dc2626' : '#f87171',
+              color: '#ffffff',
+              border: 'none',
+              cursor: isConfirmed && !loading ? 'pointer' : 'not-allowed',
+              padding: '10px 18px',
+              borderRadius: '8px',
+              fontWeight: 600
+            }}
+          >
+            {loading ? 'Deactivating...' : 'Confirm Deactivation'}
+          </button>
+        </div>
+      </div>
+    </Modal>
   );
 }
 

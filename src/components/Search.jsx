@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import moment from 'moment';
 import { FiMapPin, FiCalendar, FiClock, FiArrowRight, FiChevronLeft, FiChevronRight } from 'react-icons/fi';
 import { Modal } from '../ui';
 import { navigate } from '../router';
@@ -17,7 +18,7 @@ export function Segmented({ options, value, onChange, dark = true, className = '
 }
 
 const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
-const fmt = (d) => (d ? `${String(d.getMonth() + 1).padStart(2, '0')}/${String(d.getDate()).padStart(2, '0')}/${d.getFullYear()}` : '');
+const fmt = (d) => (d ? moment(d).format('MM/DD/YYYY') : '');
 
 function MonthGrid({ year, month, range, onPick }) {
   const first = new Date(year, month, 1);
@@ -30,6 +31,8 @@ function MonthGrid({ year, month, range, onPick }) {
   const [s, e] = range;
   const inRange = (dt) => s && e && dt >= s && dt <= e;
   const same = (a, b) => a && b && a.toDateString() === b.toDateString();
+  const todayStart = moment().startOf('day').toDate();
+
   return (
     <div className="cal-month">
       <h4>
@@ -49,13 +52,20 @@ function MonthGrid({ year, month, range, onPick }) {
               </span>
             );
           const dt = c.date;
+          const isPast = dt < todayStart;
           const cls = ['cal-day'];
           if (inRange(dt)) cls.push('in-range');
           if (same(dt, s)) cls.push('is-start');
           if (same(dt, e) || (same(dt, s) && !e)) cls.push('is-end');
-          if (c.d === 12) cls.push('is-blocked');
+          if (isPast) cls.push('is-blocked');
           return (
-            <button key={i} type="button" className={cls.join(' ')} onClick={() => onPick(dt)} disabled={c.d === 12}>
+            <button
+              key={i}
+              type="button"
+              className={cls.join(' ')}
+              onClick={() => !isPast && onPick(dt)}
+              disabled={isPast}
+            >
               {c.d}
             </button>
           );
@@ -66,9 +76,20 @@ function MonthGrid({ year, month, range, onPick }) {
 }
 
 /* Two-month range calendar — Figma "Pick-up date" / "Drop-off date" / "Date" overlays */
-export function DateRangeModal({ onClose, onSave, compact }) {
-  const [base, setBase] = useState(new Date(2026, 4, 1));
-  const [range, setRange] = useState([new Date(2026, 4, 20), new Date(2026, 4, 22)]);
+export function DateRangeModal({ onClose, onSave, compact, initialRange }) {
+  const [base, setBase] = useState(() => {
+    if (initialRange?.[0] && initialRange[0] instanceof Date && !isNaN(initialRange[0].getTime())) {
+      return new Date(initialRange[0].getFullYear(), initialRange[0].getMonth(), 1);
+    }
+    const now = new Date();
+    return new Date(now.getFullYear(), now.getMonth(), 1);
+  });
+  const [range, setRange] = useState(() => {
+    if (initialRange?.[0] && initialRange?.[1]) return initialRange;
+    const s = moment().startOf('day').toDate();
+    const e = moment().startOf('day').add(3, 'days').toDate();
+    return [s, e];
+  });
   const next = new Date(base.getFullYear(), base.getMonth() + 1, 1);
   const pick = (dt) => {
     const [s, e] = range;
@@ -134,19 +155,63 @@ export function SearchPanel({
   initialCity = '',
   initialPickDate = '',
   initialDropDate = '',
-  initialPickupTime = '10:00',
-  initialDropoffTime = '10:00',
+  initialPickupTime = '',
+  initialDropoffTime = '',
   mode = 'Daily',
   trip = 'Round Trip',
   onSearch,
 }) {
   const [cal, setCal] = useState(null);
-  const [pickupCity, setPickupCity] = useState(initialCity || '');
-  const [dropoffCity, setDropoffCity] = useState(initialCity || '');
-  const [pick, setPick] = useState(initialPickDate || '12/12/2026');
-  const [drop, setDrop] = useState(initialDropDate || '12/15/2026');
-  const [pickupTime, setPickupTime] = useState(initialPickupTime || '10:00');
-  const [dropoffTime, setDropoffTime] = useState(initialDropoffTime || '10:00');
+  const [pickupCity, setPickupCity] = useState(() => {
+    if (initialCity) return initialCity;
+    try {
+      const saved = JSON.parse(sessionStorage.getItem('turn_and_burn_search_criteria') || '{}');
+      return saved.pickupCity || saved.city || '';
+    } catch {
+      return '';
+    }
+  });
+  const [dropoffCity, setDropoffCity] = useState(() => {
+    if (initialCity) return initialCity;
+    try {
+      const saved = JSON.parse(sessionStorage.getItem('turn_and_burn_search_criteria') || '{}');
+      return saved.dropoffCity || saved.city || '';
+    } catch {
+      return '';
+    }
+  });
+  const [pick, setPick] = useState(() => {
+    if (initialPickDate) return initialPickDate;
+    try {
+      const saved = JSON.parse(sessionStorage.getItem('turn_and_burn_search_criteria') || '{}');
+      if (saved.pickupDate) return saved.pickupDate;
+    } catch {}
+    return moment().format('MM/DD/YYYY');
+  });
+  const [drop, setDrop] = useState(() => {
+    if (initialDropDate) return initialDropDate;
+    try {
+      const saved = JSON.parse(sessionStorage.getItem('turn_and_burn_search_criteria') || '{}');
+      if (saved.dropoffDate) return saved.dropoffDate;
+    } catch {}
+    return moment().add(3, 'days').format('MM/DD/YYYY');
+  });
+  const [pickupTime, setPickupTime] = useState(() => {
+    if (initialPickupTime) return initialPickupTime;
+    try {
+      const saved = JSON.parse(sessionStorage.getItem('turn_and_burn_search_criteria') || '{}');
+      if (saved.pickupTime) return saved.pickupTime;
+    } catch {}
+    return moment().add(1, 'hour').startOf('hour').format('HH:00');
+  });
+  const [dropoffTime, setDropoffTime] = useState(() => {
+    if (initialDropoffTime) return initialDropoffTime;
+    try {
+      const saved = JSON.parse(sessionStorage.getItem('turn_and_burn_search_criteria') || '{}');
+      if (saved.dropoffTime) return saved.dropoffTime;
+    } catch {}
+    return moment().add(1, 'hour').startOf('hour').format('HH:00');
+  });
 
   const handleSearchSubmit = () => {
     const searchParams = new URLSearchParams();
@@ -160,6 +225,20 @@ export function SearchPanel({
     if (dropoffTime) searchParams.set('dropoffTime', dropoffTime);
     if (mode) searchParams.set('mode', mode.toLowerCase());
     if (trip) searchParams.set('tripType', trip.toLowerCase().includes('one') ? 'oneway' : 'round');
+
+    try {
+      sessionStorage.setItem('turn_and_burn_search_criteria', JSON.stringify({
+        city,
+        pickupCity: pickupCity.trim(),
+        dropoffCity: dropoffCity.trim(),
+        pickupDate: pick,
+        dropoffDate: drop,
+        pickupTime,
+        dropoffTime,
+        mode: mode ? mode.toLowerCase() : 'daily',
+        tripType: trip && trip.toLowerCase().includes('one') ? 'oneway' : 'round',
+      }));
+    } catch {}
 
     if (onSearch) {
       onSearch({
@@ -234,6 +313,10 @@ export function SearchPanel({
       {cal && (
         <DateRangeModal
           onClose={() => setCal(null)}
+          initialRange={[
+            moment(pick, 'MM/DD/YYYY').isValid() ? moment(pick, 'MM/DD/YYYY').toDate() : moment().toDate(),
+            moment(drop, 'MM/DD/YYYY').isValid() ? moment(drop, 'MM/DD/YYYY').toDate() : moment().add(3, 'days').toDate(),
+          ]}
           onSave={([s, e]) => {
             if (s) setPick(fmt(s));
             if (e) setDrop(fmt(e));

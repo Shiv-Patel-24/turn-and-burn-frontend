@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import moment from 'moment';
 import { FiChevronLeft, FiCalendar, FiMapPin, FiPhone, FiMessageSquare, FiDownload, FiRefreshCw, FiStar, FiCreditCard, FiCheckCircle, FiCheck, FiCamera, FiFileText, FiDollarSign, FiShield, FiUser } from 'react-icons/fi';
 import { IoCarOutline, IoClose } from 'react-icons/io5';
 import { TbTag } from 'react-icons/tb';
@@ -424,6 +425,16 @@ export function RentalInfoModal({ onClose, ...props }) {
   );
 }
 
+const parseTimeHour = (tStr) => {
+  const match = (tStr || '').match(/(\d+):(\d+)\s*(AM|PM)?/i);
+  if (!match) return 10;
+  let hr = parseInt(match[1], 10);
+  const isPm = (match[3] || '').toUpperCase() === 'PM';
+  if (isPm && hr < 12) hr += 12;
+  if (!isPm && hr === 12) hr = 0;
+  return hr;
+};
+
 /* Figma: "MacBook Pro 14 - 12" — Booking / checkout */
 export function Book() {
   const [done, setDone] = useState(false);
@@ -439,18 +450,92 @@ export function Book() {
   const [phone, setPhone] = useState(currentUser.phoneNumber || '');
   const [age, setAge] = useState('28');
 
-  // Rental schedule
-  const [pickupCity, setPickupCity] = useState('San Francisco');
-  const [dropoffCity, setDropoffCity] = useState('San Francisco');
-  const [pickupTime, setPickupTime] = useState('10:00 AM');
-  const [dropoffTime, setDropoffTime] = useState('10:00 AM');
+  // Rental schedule (inherits from search bar criteria if present)
+  const [tripType, setTripType] = useState(() => {
+    const params = new URLSearchParams(window.location.hash.split('?')[1] || '');
+    if (params.get('mode') === 'hourly') return 'hourly';
+    if (params.get('tripType') === 'oneway') return 'one_way';
+    if (params.get('tripType') === 'round') return 'round_trip';
+    try {
+      const s = JSON.parse(sessionStorage.getItem('turn_and_burn_search_criteria') || '{}');
+      if (s.mode === 'hourly') return 'hourly';
+      if (s.tripType === 'oneway') return 'one_way';
+      if (s.tripType === 'round') return 'round_trip';
+    } catch {}
+    return 'daily';
+  });
+  const [pickupCity, setPickupCity] = useState(() => {
+    const params = new URLSearchParams(window.location.hash.split('?')[1] || '');
+    if (params.get('pickupCity')) return params.get('pickupCity');
+    if (params.get('city')) return params.get('city');
+    try {
+      const s = JSON.parse(sessionStorage.getItem('turn_and_burn_search_criteria') || '{}');
+      return s.pickupCity || s.city || 'San Francisco';
+    } catch {
+      return 'San Francisco';
+    }
+  });
+  const [dropoffCity, setDropoffCity] = useState(() => {
+    const params = new URLSearchParams(window.location.hash.split('?')[1] || '');
+    if (params.get('dropoffCity')) return params.get('dropoffCity');
+    try {
+      const s = JSON.parse(sessionStorage.getItem('turn_and_burn_search_criteria') || '{}');
+      return s.dropoffCity || s.pickupCity || s.city || 'San Francisco';
+    } catch {
+      return 'San Francisco';
+    }
+  });
+  const [pickupTime, setPickupTime] = useState(() => {
+    const params = new URLSearchParams(window.location.hash.split('?')[1] || '');
+    if (params.get('pickupTime')) return params.get('pickupTime');
+    try {
+      const s = JSON.parse(sessionStorage.getItem('turn_and_burn_search_criteria') || '{}');
+      return s.pickupTime ? `${s.pickupTime} AM` : '10:00 AM';
+    } catch {
+      return '10:00 AM';
+    }
+  });
+  const [dropoffTime, setDropoffTime] = useState(() => {
+    const params = new URLSearchParams(window.location.hash.split('?')[1] || '');
+    if (params.get('dropoffTime')) return params.get('dropoffTime');
+    try {
+      const s = JSON.parse(sessionStorage.getItem('turn_and_burn_search_criteria') || '{}');
+      return s.dropoffTime ? `${s.dropoffTime} AM` : '10:00 AM';
+    } catch {
+      return '10:00 AM';
+    }
+  });
   const [pickupDate, setPickupDate] = useState(() => {
-    const d = new Date(Date.now() + 2 * 24 * 60 * 60 * 1000);
-    return d.toISOString().split('T')[0];
+    const params = new URLSearchParams(window.location.hash.split('?')[1] || '');
+    const pDate = params.get('pickupDate');
+    if (pDate) {
+      const m = moment(pDate, ['MM/DD/YYYY', 'YYYY-MM-DD']);
+      if (m.isValid()) return m.format('YYYY-MM-DD');
+    }
+    try {
+      const s = JSON.parse(sessionStorage.getItem('turn_and_burn_search_criteria') || '{}');
+      if (s.pickupDate) {
+        const m = moment(s.pickupDate, ['MM/DD/YYYY', 'YYYY-MM-DD']);
+        if (m.isValid()) return m.format('YYYY-MM-DD');
+      }
+    } catch {}
+    return moment().add(1, 'day').format('YYYY-MM-DD');
   });
   const [dropoffDate, setDropoffDate] = useState(() => {
-    const d = new Date(Date.now() + 5 * 24 * 60 * 60 * 1000);
-    return d.toISOString().split('T')[0];
+    const params = new URLSearchParams(window.location.hash.split('?')[1] || '');
+    const dDate = params.get('dropoffDate');
+    if (dDate) {
+      const m = moment(dDate, ['MM/DD/YYYY', 'YYYY-MM-DD']);
+      if (m.isValid()) return m.format('YYYY-MM-DD');
+    }
+    try {
+      const s = JSON.parse(sessionStorage.getItem('turn_and_burn_search_criteria') || '{}');
+      if (s.dropoffDate) {
+        const m = moment(s.dropoffDate, ['MM/DD/YYYY', 'YYYY-MM-DD']);
+        if (m.isValid()) return m.format('YYYY-MM-DD');
+      }
+    } catch {}
+    return moment().add(4, 'days').format('YYYY-MM-DD');
   });
 
   const [vehicleData, setVehicleData] = useState(null);
@@ -538,16 +623,6 @@ export function Book() {
     let active = true;
     setQuoting(true);
 
-    const parseTimeHour = (tStr) => {
-      const match = (tStr || '').match(/(\d+):(\d+)\s*(AM|PM)?/i);
-      if (!match) return 10;
-      let hr = parseInt(match[1], 10);
-      const isPm = (match[3] || '').toUpperCase() === 'PM';
-      if (isPm && hr < 12) hr += 12;
-      if (!isPm && hr === 12) hr = 0;
-      return hr;
-    };
-
     const pTimeHour = parseTimeHour(pickupTime);
     const dTimeHour = parseTimeHour(dropoffTime);
 
@@ -556,7 +631,7 @@ export function Book() {
 
     const quotePayload = {
       vehicle: vId,
-      tripType: 'daily',
+      tripType: tripType || 'daily',
       pickup: { location: pickupCity, dateTime: pIso },
       dropoff: { location: dropoffCity, dateTime: dIso },
       promoCode: appliedPromo || undefined,
@@ -617,18 +692,21 @@ export function Book() {
         throw new Error('Missing vehicle id for booking.');
       }
 
-      const pIso = new Date(`${pickupDate}T10:00:00.000Z`).toISOString();
-      const dIso = new Date(`${dropoffDate}T10:00:00.000Z`).toISOString();
+      const pTimeHour = parseTimeHour(pickupTime);
+      const dTimeHour = parseTimeHour(dropoffTime);
+
+      const pIso = new Date(`${pickupDate}T${String(pTimeHour).padStart(2, '0')}:00:00.000Z`).toISOString();
+      const dIso = new Date(`${dropoffDate}T${String(dTimeHour).padStart(2, '0')}:00:00.000Z`).toISOString();
 
       const payload = {
         vehicle: vId,
-        tripType: 'daily',
+        tripType: tripType || 'daily',
         pickup: {
-          location: pickupCity || 'San Francisco International Airport',
+          location: pickupCity || 'Charlotte Downtown',
           dateTime: pIso,
         },
         dropoff: {
-          location: dropoffCity || 'San Francisco International Airport',
+          location: dropoffCity || pickupCity || 'Charlotte Downtown',
           dateTime: dIso,
         },
         primaryDriver: {

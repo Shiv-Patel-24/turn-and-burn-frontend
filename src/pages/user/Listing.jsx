@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import moment from 'moment';
 import Layout from '../../components/Layout';
 import { SearchPanel } from '../../components/Search';
 import { CarCard, Pagination } from '../../components/Cards';
@@ -18,7 +19,10 @@ function DarkCheck({ checked, onChange, children }) {
 }
 
 /* Figma: "MacBook Pro 14 - 7" — car listing with filter sidebar */
-export function Listing() {
+export function Listing({ role: propRole }) {
+  const hasToken = Boolean(localStorage.getItem('turn_and_burn_access_token'));
+  const isGuest = propRole === 'guest' || (!hasToken && !propRole);
+  const role = isGuest ? 'guest' : 'user';
   const { open } = useUI();
   const [selectedStyles, setSelectedStyles] = useState([]);
   const [selectedSeats, setSelectedSeats] = useState(null);
@@ -109,12 +113,12 @@ export function Listing() {
       if (selectedStyles.length > 0) params.set('style', selectedStyles[0]);
       if (selectedSeats != null) params.set('seats', String(selectedSeats));
       if (pickupDateFilter) {
-        const pd = new Date(pickupDateFilter);
-        if (!isNaN(pd.getTime())) params.set('pickupDate', pd.toISOString());
+        const m = moment(pickupDateFilter, ['MM/DD/YYYY', 'YYYY-MM-DD']);
+        if (m.isValid()) params.set('pickupDate', m.toISOString());
       }
       if (dropoffDateFilter) {
-        const dd = new Date(dropoffDateFilter);
-        if (!isNaN(dd.getTime())) params.set('dropoffDate', dd.toISOString());
+        const m = moment(dropoffDateFilter, ['MM/DD/YYYY', 'YYYY-MM-DD']);
+        if (m.isValid()) params.set('dropoffDate', m.toISOString());
       }
 
       Promise.all([
@@ -223,7 +227,7 @@ export function Listing() {
       ];
 
   return (
-    <Layout role="user">
+    <Layout role={role}>
       <div className="listing">
         <aside className="filters">
           <h6>TIME PRIOD</h6>
@@ -302,7 +306,7 @@ export function Listing() {
           <SearchPanel
             withTime={false}
             ctaDark
-            ctaTo="/app/cars"
+            ctaTo={role === 'user' ? '/app/cars' : '/cars'}
             className="search--slim"
             initialCity={cityFilter}
             initialPickDate={pickupDateFilter}
@@ -335,7 +339,7 @@ export function Listing() {
                   key={c.id || k}
                   car={c}
                   size="sm"
-                  onRent={() => navigate(`/app/car/${c.id || 1}`)}
+                  onRent={() => navigate(role === 'user' ? `/app/car/${c.id || 1}` : `/car/${c.id || 1}`)}
                   onToggleFavorite={handleToggleFavorite}
                 />
               ))
