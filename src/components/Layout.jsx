@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { FaApple, FaGooglePlay, FaInstagram, FaDribbble, FaTwitter, FaYoutube } from 'react-icons/fa';
-import { FiHome, FiHeart, FiMessageSquare, FiUser, FiMapPin, FiGift, FiHeadphones, FiLogOut, FiCalendar, FiMoreVertical, FiBell, FiTrash2, FiCheck, FiUsers } from 'react-icons/fi';
+import { FiHome, FiHeart, FiMessageSquare, FiUser, FiMapPin, FiGift, FiHeadphones, FiLogOut, FiCalendar, FiMoreVertical, FiBell, FiTrash2, FiCheck, FiUsers, FiGlobe } from 'react-icons/fi';
 import { IoCarSportOutline, IoSwapHorizontal, IoClose } from 'react-icons/io5';
 import { TbFileText, TbReceipt, TbRoad, TbChartBar } from 'react-icons/tb';
 import { Link, navigate } from '../router';
@@ -22,6 +22,7 @@ export function Logo({ role = 'guest' }) {
 export function Header({ role = 'guest' }) {
   const { open } = useUI();
   const [unread, setUnread] = useState(0);
+  const [unreadMessages, setUnreadMessages] = useState(0);
   const [notifOpen, setNotifOpen] = useState(false);
   const [notifications, setNotifications] = useState([]);
 
@@ -36,8 +37,36 @@ export function Header({ role = 'guest' }) {
       .catch(() => {});
   };
 
+  const loadUnreadMessages = () => {
+    if (role === 'guest') return;
+    apiRequest('/messages/unread-count')
+      .then((res) => {
+        const count = res?.data?.unreadCount || 0;
+        setUnreadMessages(count);
+      })
+      .catch(() => {});
+  };
+
   useEffect(() => {
     loadNotifications();
+    loadUnreadMessages();
+
+    // Periodic badge polling every 25 seconds
+    const interval = setInterval(() => {
+      loadNotifications();
+      loadUnreadMessages();
+    }, 25000);
+
+    const onFocus = () => {
+      loadNotifications();
+      loadUnreadMessages();
+    };
+    window.addEventListener('focus', onFocus);
+
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener('focus', onFocus);
+    };
   }, [role]);
 
   const handleMarkAllRead = async () => {
@@ -84,12 +113,31 @@ export function Header({ role = 'guest' }) {
           </button>
         ) : (
           <div className="header__right">
+            {/* Quick access to Inbox with unread message badge */}
+            <button
+              type="button"
+              className="btn-switch"
+              style={{ position: 'relative', display: 'inline-flex', alignItems: 'center', gap: '6px' }}
+              onClick={() => navigate(role === 'user' ? '/app/inbox' : '/host/inbox')}
+              aria-label="Inbox"
+              title="Inbox Messages"
+            >
+              <FiMessageSquare size={18} />
+              {unreadMessages > 0 && (
+                <span style={{ backgroundColor: '#0a5cff', color: '#fff', borderRadius: '999px', fontSize: '11px', fontWeight: 'bold', padding: '1px 6px' }}>
+                  {unreadMessages}
+                </span>
+              )}
+            </button>
+
+            {/* Notification bell with unread badge */}
             <button
               type="button"
               className="btn-switch"
               style={{ position: 'relative', display: 'inline-flex', alignItems: 'center', gap: '6px' }}
               onClick={() => setNotifOpen(true)}
               aria-label="Notifications"
+              title="Notifications"
             >
               <FiBell size={18} />
               {unread > 0 && (
@@ -201,13 +249,54 @@ export function StoreButtons({ size = 'md' }) {
 export function Footer({ role = 'guest' }) {
   const { open } = useUI();
   const b = base(role);
+  const [languages, setLanguages] = useState([]);
+  const [currentLang, setCurrentLang] = useState(() => localStorage.getItem('turn_and_burn_lang') || 'en');
+
+  useEffect(() => {
+    let active = true;
+    apiRequest('/content/languages')
+      .then((res) => {
+        if (!active) return;
+        const list = res?.data || [];
+        if (Array.isArray(list) && list.length > 0) {
+          setLanguages(list);
+        }
+      })
+      .catch(() => {});
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  const handleLangChange = async (code) => {
+    setCurrentLang(code);
+    localStorage.setItem('turn_and_burn_lang', code);
+    const selectedObj = languages.find((l) => l.code === code);
+    const selectedName = selectedObj?.name || 'English';
+
+    // If logged in, update language in profile
+    const user = getCurrentUser();
+    if (user && user._id) {
+      try {
+        await apiRequest('/users/me', {
+          method: 'PATCH',
+          body: { language: selectedName },
+        });
+        setCurrentUser({ ...user, language: selectedName });
+      } catch (err) {
+        console.warn('Could not sync user language preference:', err.message);
+      }
+    }
+  };
+
   const links = [
-    role !== 'host' && { label: 'Rent', to: role === 'user' ? '/app/cars' : null },
+    role !== 'host' && { label: 'Rent', to: role === 'user' ? '/app/cars' : '/cars' },
     { label: 'Blogs', to: `${b}/blogs` },
     { label: 'Terms & Conditions', to: `${b}/terms` },
     { label: 'About us', to: `${b}/about` },
     { label: 'Contact', to: role === 'host' ? '/host/more' : `${b}/contact` },
   ].filter(Boolean);
+
   return (
     <footer className="footer">
       <div className="footer__app">
@@ -236,12 +325,45 @@ export function Footer({ role = 'guest' }) {
             ),
           )}
         </nav>
-        <div className="footer__social">
-          {[FaInstagram, FaDribbble, FaTwitter, FaYoutube].map((I, i) => (
-            <a key={i} href="#/" onClick={(e) => e.preventDefault()} aria-label="social">
-              <I size={12} />
-            </a>
-          ))}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '16px', flexWrap: 'wrap' }}>
+          {/* Dynamic Language Selector */}
+          <div style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+            <FiGlobe size={15} color="#94a3b8" />
+            <select
+              value={currentLang}
+              onChange={(e) => handleLangChange(e.target.value)}
+              aria-label="Select Language"
+              style={{
+                background: '#f8fafc',
+                border: '1px solid #cbd5e1',
+                borderRadius: '6px',
+                padding: '4px 8px',
+                fontSize: '12px',
+                color: '#334155',
+                fontWeight: 600,
+                cursor: 'pointer',
+                outline: 'none',
+              }}
+            >
+              {languages.length > 0 ? (
+                languages.map((l) => (
+                  <option key={l.code || l.name} value={l.code}>
+                    {l.name}
+                  </option>
+                ))
+              ) : (
+                <option value="en">English</option>
+              )}
+            </select>
+          </div>
+
+          <div className="footer__social">
+            {[FaInstagram, FaDribbble, FaTwitter, FaYoutube].map((I, i) => (
+              <a key={i} href="#/" onClick={(e) => e.preventDefault()} aria-label="social">
+                <I size={12} />
+              </a>
+            ))}
+          </div>
         </div>
       </div>
     </footer>
@@ -264,10 +386,22 @@ function MenuPanel({ items, onClose }) {
   const { open } = useUI();
   const user = getCurrentUser() || {};
   const name = user.firstName ? `${user.firstName} ${user.lastName || ''}`.trim() : 'Kaylynn Bergson';
+  const [unreadMsg, setUnreadMsg] = useState(0);
+
+  useEffect(() => {
+    apiRequest('/messages/unread-count')
+      .then((res) => setUnreadMsg(res?.data?.unreadCount || 0))
+      .catch(() => {});
+  }, []);
 
   const handleItemClick = async ({ to, action }) => {
     if (action === 'logout') {
       open('logout');
+      return;
+    }
+    if (action === 'feedback') {
+      onClose();
+      open('feedback');
       return;
     }
     if (action === 'switch-role-host') {
@@ -325,7 +459,12 @@ function MenuPanel({ items, onClose }) {
                 onClick={() => handleItemClick(item)}
               >
                 <I size={30} strokeWidth={1.5} />
-                {label}
+                <span>{label}</span>
+                {label === 'Inbox' && unreadMsg > 0 && (
+                  <span style={{ marginLeft: 'auto', backgroundColor: '#0a5cff', color: '#fff', borderRadius: '999px', fontSize: '11px', fontWeight: 'bold', padding: '1px 8px' }}>
+                    {unreadMsg}
+                  </span>
+                )}
               </button>
             );
           })}
@@ -353,6 +492,7 @@ export function UserMenu({ onClose }) {
       { icon: FiGift, label: 'Gift Cards', to: '/app/gift-cards' },
       { icon: FiUsers, label: 'Refer & Earn', to: '/app/referrals' },
       { icon: FiHeadphones, label: 'Contact Us', to: '/app/contact' },
+      { icon: FiMessageSquare, label: 'Send Feedback', action: 'feedback' },
       { icon: TbFileText, label: 'Legal', to: '/app/legal' },
     ],
     [{ icon: FiLogOut, label: 'Log Out', action: 'logout' }],
@@ -370,6 +510,8 @@ export function HostMenu({ onClose }) {
       { icon: TbChartBar, label: 'Analytics', to: '/host/analytics' },
       { icon: FiUser, label: 'My Profile', to: '/host/profile' },
       { icon: IoSwapHorizontal, label: 'Switch to Guest', action: 'switch-role-guest' },
+      { icon: FiHeadphones, label: 'Help & Support', to: '/host/more' },
+      { icon: FiMessageSquare, label: 'Send Feedback', action: 'feedback' },
       { icon: FiMoreVertical, label: 'More', to: '/host/more' },
     ],
     [{ icon: FiLogOut, label: 'Log Out', action: 'logout' }],

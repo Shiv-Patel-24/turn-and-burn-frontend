@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { FiChevronLeft, FiChevronRight, FiHeart, FiShare2, FiMapPin, FiClock, FiShield, FiPhone, FiMail, FiCheck, FiCalendar, FiSettings } from 'react-icons/fi';
+import { FiChevronLeft, FiChevronRight, FiHeart, FiShare2, FiMapPin, FiClock, FiShield, FiPhone, FiMail, FiCheck, FiCalendar, FiSettings, FiCheckCircle } from 'react-icons/fi';
 import { FaStar, FaHeart } from 'react-icons/fa';
 import { TbGauge, TbPalette, TbGasStation } from 'react-icons/tb';
 import Layout from '../components/Layout';
@@ -48,6 +48,7 @@ export default function CarDetail({ role = 'guest' }) {
   const [similarLoading, setSimilarLoading] = useState(true);
   const [hostListingsCount, setHostListingsCount] = useState(null);
   const [hostReviewSummary, setHostReviewSummary] = useState(null);
+  const [hostPublicProfile, setHostPublicProfile] = useState(null);
   const [availability, setAvailability] = useState([]);
   const isUser = role === 'user';
   const guard = (fn) => () => (isUser ? fn() : open('signup'));
@@ -74,6 +75,13 @@ export default function CarDetail({ role = 'guest' }) {
 
         const hostId = v?.host?._id || (typeof v?.host === 'string' ? v?.host : null);
         if (hostId) {
+          apiRequest(`/users/${hostId}/public-profile`)
+            .then((pRes) => {
+              if (!active) return;
+              if (pRes?.data) setHostPublicProfile(pRes.data);
+            })
+            .catch(() => {});
+
           apiRequest(`/vehicles/host/${hostId}/listings`)
             .then((hRes) => {
               if (!active) return;
@@ -108,6 +116,13 @@ export default function CarDetail({ role = 'guest' }) {
               setVehicle(found);
               const hostId = found?.host?._id || (typeof found?.host === 'string' ? found?.host : null);
               if (hostId) {
+                apiRequest(`/users/${hostId}/public-profile`)
+                  .then((pRes) => {
+                    if (!active) return;
+                    if (pRes?.data) setHostPublicProfile(pRes.data);
+                  })
+                  .catch(() => {});
+
                 apiRequest(`/vehicles/host/${hostId}/listings`)
                   .then((hRes) => {
                     if (!active) return;
@@ -248,31 +263,46 @@ export default function CarDetail({ role = 'guest' }) {
     [FiSettings, 'VIN', vehicle.vin ? `${vehicle.vin.slice(0, 8)}******` : '4T1B11HK1KU******'],
   ] : defaultSpecs;
 
-  // Dynamic host/seller details
+  // Dynamic host/seller details (hydrated via GET /users/:id/public-profile)
   const host = (vehicle?.host && typeof vehicle.host === 'object') ? vehicle.host : null;
-  const hostName = host
-    ? `${host.firstName || ''} ${host.lastName || ''}`.trim() || 'Verified Host'
-    : 'Verified Host';
-  const hostInitials = host
-    ? `${(host.firstName?.[0] || 'V')}${(host.lastName?.[0] || 'H')}`.toUpperCase()
-    : 'VH';
-  const hostPhoto = host?.profilePhotoUrl || null;
-  const hostMemberSince = host?.createdAt
-    ? `Member since ${new Date(host.createdAt).toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}`
-    : 'Member since March 2024';
-  const hostRating = hostReviewSummary?.average != null
-    ? Number(hostReviewSummary.average).toFixed(1)
-    : (reviewSummary?.averageRating
-      ? Number(reviewSummary.averageRating).toFixed(1)
-      : (vehicle?.rating ? Number(vehicle.rating).toFixed(1) : '4.9'));
-  const hostReviewsCount = hostReviewSummary?.totalReviews !== undefined
-    ? hostReviewSummary.totalReviews
-    : (reviewSummary?.totalReviews !== undefined
-      ? reviewSummary.totalReviews
-      : (vehicleReviews?.length || 23));
-  const hostListingsText = hostListingsCount !== null
-    ? `${hostListingsCount} active listing${hostListingsCount === 1 ? '' : 's'}`
-    : '3 active listings';
+  const hostName = hostPublicProfile
+    ? `${hostPublicProfile.firstName || ''} ${hostPublicProfile.lastName || ''}`.trim() || 'Verified Host'
+    : (host ? `${host.firstName || ''} ${host.lastName || ''}`.trim() || 'Verified Host' : 'Verified Host');
+  const hostInitials = hostPublicProfile
+    ? `${(hostPublicProfile.firstName?.[0] || 'V')}${(hostPublicProfile.lastName?.[0] || 'H')}`.toUpperCase()
+    : (host ? `${(host.firstName?.[0] || 'V')}${(host.lastName?.[0] || 'H')}`.toUpperCase() : 'VH');
+  const hostPhoto = hostPublicProfile?.profilePhotoUrl || host?.profilePhotoUrl || null;
+  const hostMemberSince = hostPublicProfile?.memberSince
+    ? `Member since ${new Date(hostPublicProfile.memberSince).toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}`
+    : (host?.createdAt
+      ? `Member since ${new Date(host.createdAt).toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}`
+      : 'Member since March 2024');
+  const hostRating = hostPublicProfile?.rating?.average != null
+    ? Number(hostPublicProfile.rating.average).toFixed(1)
+    : (hostReviewSummary?.average != null
+      ? Number(hostReviewSummary.average).toFixed(1)
+      : (reviewSummary?.averageRating
+        ? Number(reviewSummary.averageRating).toFixed(1)
+        : (vehicle?.rating ? Number(vehicle.rating).toFixed(1) : '4.9')));
+  const hostReviewsCount = hostPublicProfile?.reviewsCount != null
+    ? hostPublicProfile.reviewsCount
+    : (hostReviewSummary?.totalReviews !== undefined
+      ? hostReviewSummary.totalReviews
+      : (reviewSummary?.totalReviews !== undefined
+        ? reviewSummary.totalReviews
+        : (vehicleReviews?.length || 23)));
+  const hostListingsText = hostPublicProfile?.activeListings != null
+    ? `${hostPublicProfile.activeListings} active listing${hostPublicProfile.activeListings === 1 ? '' : 's'}`
+    : (hostListingsCount !== null
+      ? `${hostListingsCount} active listing${hostListingsCount === 1 ? '' : 's'}`
+      : '3 active listings');
+  const hostResponseHours = hostPublicProfile?.responseTimeHours != null
+    ? hostPublicProfile.responseTimeHours
+    : 2;
+  const hostResponseText = `Usually responds in ${hostResponseHours} hour${hostResponseHours === 1 ? '' : 's'}`;
+  const isHostVerified = hostPublicProfile?.verified !== undefined
+    ? hostPublicProfile.verified
+    : true;
 
   return (
     <Layout role={role}>
@@ -460,6 +490,28 @@ export default function CarDetail({ role = 'guest' }) {
                         </span>
                       </div>
                       <p>{r.comment || 'Smooth rental experience.'}</p>
+                      {r.publicResponse?.text && (
+                        <div style={{
+                          marginTop: '10px',
+                          padding: '12px 14px',
+                          backgroundColor: '#f8fafc',
+                          borderRadius: '8px',
+                          borderLeft: '4px solid #2563eb',
+                          fontSize: '13px'
+                        }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
+                            <strong style={{ color: '#1e293b' }}>Response from Host:</strong>
+                            {r.publicResponse.respondedAt && (
+                              <span style={{ fontSize: '11px', color: '#64748b' }}>
+                                {new Date(r.publicResponse.respondedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                              </span>
+                            )}
+                          </div>
+                          <p style={{ margin: 0, color: '#334155', fontStyle: 'italic' }}>
+                            "{r.publicResponse.text}"
+                          </p>
+                        </div>
+                      )}
                     </div>
                   </div>
                 );
@@ -490,7 +542,7 @@ export default function CarDetail({ role = 'guest' }) {
               )}
               <div>
                 <b>{hostName}</b>
-                <small>Verified Host</small>
+                <small>{isHostVerified ? 'Verified Host' : 'Host'}</small>
                 <span className="seller__rating">
                   <FaStar color="#FDB022" /> <b>{hostRating}</b>
                   <small>({hostReviewsCount} reviews)</small>
@@ -499,14 +551,19 @@ export default function CarDetail({ role = 'guest' }) {
             </div>
             <ul className="seller__facts">
               <li>
-                <FiMapPin /> {hostMemberSince}
+                <FiCalendar /> {hostMemberSince}
               </li>
               <li>
-                <FiClock /> Usually responds in 2 hours
+                <FiClock /> {hostResponseText}
               </li>
               <li>
-                <FiShield /> Verified host
+                <FiShield /> {isHostVerified ? 'Verified Host' : 'Identity Unverified'}
               </li>
+              {hostPublicProfile?.completedTrips != null && (
+                <li>
+                  <FiCheckCircle /> {hostPublicProfile.completedTrips} trips completed
+                </li>
+              )}
             </ul>
             <button type="button" className="btn btn-primary btn-block" onClick={guard(handleStartConversation)}>
               Message Seller

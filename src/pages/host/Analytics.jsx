@@ -79,11 +79,20 @@ export default function Analytics() {
   const handlePostResponse = async (reviewId) => {
     if (!replyText.trim() || submittingReply) return;
     setSubmittingReply(true);
+    const submittedText = replyText.trim();
     try {
       await apiRequest(`/reviews/${reviewId}/response`, {
         method: 'POST',
-        body: { text: replyText.trim() },
+        body: { text: submittedText },
       });
+      // Optimistic update
+      setReviewsData((prev) =>
+        prev.map((r) =>
+          (r._id === reviewId || r.id === reviewId)
+            ? { ...r, publicResponse: { text: submittedText, respondedAt: new Date().toISOString() } }
+            : r
+        )
+      );
       setReplyText('');
       setActiveReviewId(null);
       fetchAnalytics();
@@ -360,8 +369,16 @@ export default function Analytics() {
                       <p>{rev.comment || 'Smooth rental experience with this vehicle.'}</p>
 
                       {(rev.publicResponse?.text || rev.hostResponse?.text) && (
-                        <div style={{ background: '#f8fafc', padding: '10px 14px', borderRadius: '8px', borderLeft: '3px solid #2563eb', margin: '8px 0', fontSize: '13px' }}>
-                          <strong style={{ color: '#0f172a' }}>Your response:</strong> {rev.publicResponse?.text || rev.hostResponse?.text}
+                        <div style={{ background: '#f8fafc', padding: '12px 14px', borderRadius: '8px', borderLeft: '3px solid #2563eb', margin: '10px 0', fontSize: '13px' }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
+                            <strong style={{ color: '#0f172a' }}>Your response:</strong>
+                            {(rev.publicResponse?.respondedAt || rev.hostResponse?.respondedAt) && (
+                              <span style={{ fontSize: '11px', color: '#64748b' }}>
+                                {new Date(rev.publicResponse?.respondedAt || rev.hostResponse?.respondedAt).toLocaleDateString()}
+                              </span>
+                            )}
+                          </div>
+                          <span style={{ color: '#334155' }}>{rev.publicResponse?.text || rev.hostResponse?.text}</span>
                         </div>
                       )}
 
@@ -374,29 +391,33 @@ export default function Analytics() {
                       {activeReviewId === rev._id && (
                         <div style={{ marginTop: '10px' }}>
                           <textarea
-                            placeholder="Write a public response to this review..."
+                            placeholder="Write a public response to this review (up to 1,000 characters)..."
                             value={replyText}
+                            maxLength={1000}
                             onChange={(e) => setReplyText(e.target.value)}
                             style={{ width: '100%', padding: '8px 12px', borderRadius: '8px', border: '1px solid #cbd5e1', fontSize: '13px', minHeight: '60px' }}
                           />
-                          <div style={{ display: 'flex', gap: '8px', marginTop: '6px' }}>
-                            <button
-                              type="button"
-                              className="btn btn-primary"
-                              style={{ padding: '6px 12px', fontSize: '12px' }}
-                              disabled={submittingReply || !replyText.trim()}
-                              onClick={() => handlePostResponse(rev._id)}
-                            >
-                              {submittingReply ? 'Posting...' : 'Post Response'}
-                            </button>
-                            <button
-                              type="button"
-                              className="btn btn-outline"
-                              style={{ padding: '6px 12px', fontSize: '12px' }}
-                              onClick={() => { setActiveReviewId(null); setReplyText(''); }}
-                            >
-                              Cancel
-                            </button>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '6px' }}>
+                            <small style={{ color: '#64748b' }}>{replyText.length}/1000 characters</small>
+                            <div style={{ display: 'flex', gap: '8px' }}>
+                              <button
+                                type="button"
+                                className="btn btn-primary"
+                                style={{ padding: '6px 12px', fontSize: '12px' }}
+                                disabled={submittingReply || !replyText.trim()}
+                                onClick={() => handlePostResponse(rev._id)}
+                              >
+                                {submittingReply ? 'Posting...' : 'Post Response'}
+                              </button>
+                              <button
+                                type="button"
+                                className="btn btn-outline"
+                                style={{ padding: '6px 12px', fontSize: '12px' }}
+                                onClick={() => { setActiveReviewId(null); setReplyText(''); }}
+                              >
+                                Cancel
+                              </button>
+                            </div>
                           </div>
                         </div>
                       )}
